@@ -28,9 +28,25 @@ os.environ[config.HOME_ENV_VAR] = str(TMP_ROOT / "config_home")
 from secret_sanitizer.config import Settings  # noqa: E402
 from secret_sanitizer.core.pipeline import Sanitizer, load_default_ruleset  # noqa: E402
 
-from tests.fake_data import FAKE_DIR, FALSE_POSITIVES, SECRETS  # noqa: E402,F401
+from tests.fake_data import FAKE_DIR, FALSE_POSITIVES, SECRETS, generate  # noqa: E402,F401
 
 _RULESET = None
+
+
+def copy_fake_data(target: Path, subdir: str = "") -> Path:
+    """Erzeugt die Fake-Testdaten frisch in target, statt tests/fake_secrets zu
+    kopieren. So beeinflussen dort liegengebliebene Dateien (z. B. die Ausgabe
+    eines Probelaufs) keinen Test. subdir: nur diesen Unterordner übernehmen."""
+    if not subdir:
+        generate(target)
+        return target
+    staging = Path(tempfile.mkdtemp(prefix="fake_", dir=str(TMP_ROOT)))
+    try:
+        generate(staging)
+        shutil.copytree(staging / subdir, target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return target
 
 
 def default_ruleset():

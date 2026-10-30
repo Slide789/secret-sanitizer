@@ -2,12 +2,11 @@
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 import unittest
 
-from tests.helpers import FAKE_DIR, ROOT, SECRETS, SecretAssertions, TempDirTestCase
+from tests.helpers import ROOT, SECRETS, SecretAssertions, TempDirTestCase, copy_fake_data
 
 from secret_sanitizer import config
 
@@ -18,6 +17,8 @@ class CliTests(SecretAssertions, TempDirTestCase):
     def cli(self, *args, stdin: bytes = b""):
         env = dict(os.environ)
         env[config.HOME_ENV_VAR] = str(self.tmp / "home")
+        # Meldungen unabhängig von der Konsolen-Kodierung (unter Windows oft cp1252) als UTF-8
+        env["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run([sys.executable, "-m", "secret_sanitizer", *args], input=stdin, cwd=str(ROOT),
                               env=env, capture_output=True, timeout=120)
 
@@ -40,7 +41,7 @@ class CliTests(SecretAssertions, TempDirTestCase):
 
     def test_folder_run(self):
         src = self.tmp / "daten"
-        shutil.copytree(FAKE_DIR, src)
+        copy_fake_data(src)
         res = self.cli(str(src), "-q")
         self.assertEqual(res.returncode, 0, res.stderr)
         out = self.tmp / "daten_sanitized"
@@ -49,14 +50,14 @@ class CliTests(SecretAssertions, TempDirTestCase):
 
     def test_folder_run_output_has_no_secrets(self):
         src = self.tmp / "daten"
-        shutil.copytree(FAKE_DIR, src)
+        copy_fake_data(src)
         res = self.cli(str(src), "-o", str(self.tmp / "aus"))
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertNoSecrets(res.stderr.decode("utf-8") + res.stdout.decode("utf-8"))
 
     def test_refuses_output_equal_input(self):
         src = self.tmp / "daten"
-        shutil.copytree(FAKE_DIR / "linux", src)
+        copy_fake_data(src, "linux")
         res = self.cli(str(src), "-o", str(src))
         self.assertEqual(res.returncode, 2)
         self.assertIn("Ausgabeordner", res.stderr.decode("utf-8"))

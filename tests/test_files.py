@@ -2,13 +2,12 @@
 
 import copy
 import hashlib
-import shutil
 import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.helpers import FAKE_DIR, SECRETS, SecretAssertions, TempDirTestCase, default_ruleset, make_sanitizer
+from tests.helpers import SECRETS, SecretAssertions, TempDirTestCase, copy_fake_data, default_ruleset, make_sanitizer
 
 from secret_sanitizer.core import files as files_mod
 from secret_sanitizer.core.files import (REPORT_NAME, FileRun, RunError, default_output_dir, load_text_file,
@@ -35,7 +34,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
     def setUp(self):
         super().setUp()
         self.input = self.tmp / "eingabe"
-        shutil.copytree(FAKE_DIR, self.input)
+        copy_fake_data(self.input)
         self.before = tree_hashes(self.input)
 
     def run_folder(self, mode="strict", **kwargs):

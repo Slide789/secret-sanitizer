@@ -25,7 +25,7 @@ from secret_sanitizer import config  # noqa: E402
 
 os.environ[config.HOME_ENV_VAR] = str(TMP / "config_home")
 
-from tests.fake_data import FAKE_DIR, SECRETS  # noqa: E402
+from tests.fake_data import FAKE_DIR, SECRETS, generate  # noqa: E402
 
 SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 
@@ -94,7 +94,7 @@ def main() -> int:
 
     # 4) Ordnerlauf
     src = TMP / "daten"
-    shutil.copytree(FAKE_DIR, src)
+    generate(src)
     app.tabs.set("Dateien & Ordner")
     app.input_var.set(str(src))
     app.start_run()
