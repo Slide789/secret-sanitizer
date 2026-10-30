@@ -179,6 +179,17 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         self.assertIn(f"binary/{placeholder}.png", text)
         self.assertEqual(report.stale, [])
 
+    def test_hostname_only_in_filename(self):
+        # Hostname steht nur im Namen, nicht im Inhalt; die Endung .log darf die Erkennung nicht verhindern
+        src = self.tmp / "nur_name"
+        src.mkdir()
+        (src / "srv01.corp.local.log").write_text("x\n", encoding="utf-8")
+        (src / "sicherung_srv02.corp.local.tar").write_text("x\n", encoding="utf-8")
+        (src / "README.md").write_text("x\n", encoding="utf-8")
+        _, out = FileRun(make_sanitizer(sanitize_filenames=True, process_archives=False)).run(src)
+        names = sorted(p.name for p in out.iterdir() if p.name != REPORT_NAME)
+        self.assertEqual(names, ["README.md", "[HOSTNAME_2].log", "sicherung_[HOSTNAME_1].tar"])
+
     def test_sanitized_filename_collisions(self):
         # Eigener Ordner ohne Fake-Daten, damit 10.1.2.3 sicher [IP_1] wird.
         # "10.1.2.3.log" wird zu "[IP_1].log" - genau wie die schon vorhandene Datei.

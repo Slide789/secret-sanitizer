@@ -615,13 +615,27 @@ def sanitize_path_part(sanitizer, part: str, exclude=()) -> str:
     """Bereinigt einen Datei- oder Ordnernamen mit dem Mapping der Sitzung.
     Zeichen, die unter Windows in Namen verboten sind, werden zu "_".
 
-    In Dateinamen ist "_" meist ein Trenner (backup_db01.firma.local.log),
-    für reguläre Ausdrücke aber ein Wortzeichen. Darum wird zusätzlich eine
-    Variante mit Leerzeichen statt "_" geprüft (gleiche Länge, gleiche
-    Positionen); der bessere Treffer gewinnt."""
-    findings = sanitizer.analyze(part, exclude)
-    if "_" in part:
-        findings = merger.resolve_overlaps(findings + sanitizer.analyze(part.replace("_", " "), exclude))
+    Varianten mit gleicher Länge (also gleichen Positionen) werden zusätzlich
+    geprüft, der bessere Treffer gewinnt:
+      - "_" als Leerzeichen: in Dateinamen meist ein Trenner
+        (backup_db01.firma.local), für reguläre Ausdrücke ein Wortzeichen
+      - ohne Dateiendung: "srv01.corp.local.log" wäre sonst kein Hostname"""
+    variants = {part, part.replace("_", " ")}
+    dot = part.rfind(".")
+    if dot > 0:
+        for base in (part, part.replace("_", " ")):
+            variants.add(base[:dot] + " " * (len(part) - dot))
+    # Erst alle Kandidaten sammeln, ohne sie ins Mapping einzutragen; sonst würde
+    # ein Teilwert aus einer Variante (corp.local) den vollständigen (srv01.corp.local)
+    # über die Konsistenz-Suche verdrängen. Platzhalter bekommen nur die Gewinner.
+    keys = sanitizer._exclude_keys(exclude)
+    primary: list = []
+    propagated: list = []
+    for variant in sorted(variants):
+        primary += merger.prepare(sanitizer.detect_raw(variant), variant, sanitizer.settings, sanitizer.ruleset, keys)
+        propagated += merger.prepare_propagated(sanitizer.mapping.find_propagated(variant), variant,
+                                                sanitizer.settings, sanitizer.ruleset, keys)
+    findings = merger.resolve_overlaps(primary, propagated)
     if not findings:
         return part
     cleaned = apply_replacements(part, findings, sanitizer.mapping).text
