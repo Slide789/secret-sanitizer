@@ -15,16 +15,45 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 PKG = os.path.join(ROOT, "secret_sanitizer")
 
 
-def read_app_name():
+def read_constant(name):
+    """Liest eine Konstante (APP_NAME, APP_TITLE, APP_VERSION) aus config.py."""
     with open(os.path.join(PKG, "config.py"), encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "APP_NAME" for t in node.targets):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
             return node.value.value
-    raise SystemExit("APP_NAME nicht gefunden")
+    raise SystemExit(f"{name} nicht gefunden")
 
 
-APP_NAME = read_app_name()
+APP_NAME = read_constant("APP_NAME")
+APP_TITLE = read_constant("APP_TITLE")
+APP_VERSION = read_constant("APP_VERSION")
+
+
+def write_version_file(exe_name, description):
+    """Windows-Versionsinfo (Eigenschaften -> Details) aus APP_VERSION."""
+    numbers = [int(x) for x in APP_VERSION.split(".") if x.isdigit()][:4]
+    numbers += [0] * (4 - len(numbers))
+    text = f'''VSVersionInfo(
+  ffi=FixedFileInfo(filevers={tuple(numbers)}, prodvers={tuple(numbers)}, mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040704B0', [
+      StringStruct('FileDescription', {description!r}),
+      StringStruct('FileVersion', {APP_VERSION!r}),
+      StringStruct('InternalName', {exe_name!r}),
+      StringStruct('OriginalFilename', {exe_name + ".exe"!r}),
+      StringStruct('ProductName', {APP_TITLE!r}),
+      StringStruct('ProductVersion', {APP_VERSION!r})])]),
+    VarFileInfo([VarStruct('Translation', [0x0407, 1200])])
+  ]
+)
+'''
+    path = os.path.join(workpath, f"version_{exe_name}.txt")
+    os.makedirs(workpath, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
 RULES = [(os.path.join(PKG, "rules", name), os.path.join(APP_NAME, "rules"))
          for name in ("default_rules.json", "user_rules.json")]
 # Nichts aus dem Netz, keine unnötigen Module
@@ -42,6 +71,7 @@ gui_pyz = PYZ(gui.pure)
 gui_exe = EXE(
     gui_pyz, gui.scripts, gui.binaries, gui.datas, [],
     name=APP_NAME,
+    version=write_version_file(APP_NAME, f"{APP_TITLE} (Oberfläche)"),
     console=False,          # GUI ohne schwarzes Konsolenfenster
     upx=False,              # UPX löst öfter Virenscanner-Fehlalarme aus
     debug=False,
@@ -59,6 +89,7 @@ cli_pyz = PYZ(cli.pure)
 cli_exe = EXE(
     cli_pyz, cli.scripts, cli.binaries, cli.datas, [],
     name=APP_NAME + "_cli",
+    version=write_version_file(APP_NAME + "_cli", f"{APP_TITLE} (Kommandozeile)"),
     console=True,
     upx=False,
     debug=False,

@@ -119,15 +119,18 @@ und rechts die bereinigte Fassung, unten die Trefferliste und der Kopier-Button.
    im Text.
 4. **„Doch nicht ersetzen“** (oder Doppelklick) nimmt einen Wert aus. Das gilt dann für **alle** Vorkommen
    dieses Werts. Mit „Wieder ersetzen“ wird das rückgängig gemacht. Ausnahmen gelten nur bis zum Schließen und
-   werden nicht gespeichert. Dauerhafte Ausnahmen gehören in die Allowlist.
+   werden nicht gespeichert.
+   **„Immer ignorieren“** übernimmt den markierten Wert nach einer Rückfrage dauerhaft in die Allowlist
+   (im Klartext in `user_rules.json`, also nur für Werte, die wirklich kein Geheimnis sind).
 5. **„Bereinigten Text kopieren“** legt das Ergebnis in die Zwischenablage. Ergebnis prüfen und dann in die KI
    einfügen.
 6. War eine Datei geladen, schreibt **„Bereinigte Datei speichern“** das Ergebnis in den Ausgabeordner.
    Das Original bleibt unverändert.
 
-Sehr große Texte (mehr als `max_preview_chars` Zeichen, Standard 200 000) zeigt das Tool ohne farbige Vorschau,
-weil das Textfeld sonst sehr langsam wird. Stattdessen gibt es eine Zusammenfassung mit Stichproben. Kopieren
-funktioniert trotzdem.
+Ab 50 000 Zeichen läuft die Analyse im Hintergrund, das Fenster bleibt dabei bedienbar. Sehr große Texte
+(mehr als `max_preview_chars` Zeichen, Standard 200 000) zeigt das Tool ohne farbige Vorschau, weil das Textfeld
+sonst sehr langsam wird. Stattdessen gibt es eine Zusammenfassung mit Stichproben. Kopieren funktioniert
+trotzdem. Ein Archiv (`.zip`, `.gz` …), das hier geöffnet wird, wird direkt als Dateilauf bereinigt.
 
 ### Reiter „Dateien & Ordner“
 
@@ -140,9 +143,28 @@ funktioniert trotzdem.
    mit Anzahl der Ersetzungen pro Kategorie, **ohne Originalwerte**. Der Bericht wird auch als
    `secret_sanitizer_bericht.txt` in den Ausgabeordner geschrieben.
 5. Dateien über `max_file_size_mb` (Standard 100 MB) lösen eine Rückfrage aus.
+6. **Ausschlussmuster**: Ordner wie `.git`, `node_modules`, `__pycache__`, `.venv` und frühere
+   `*_sanitized`-Ausgaben werden übersprungen und im Bericht aufgeführt (änderbar im Reiter „Einstellungen“).
+7. **„Ausgabeordner vorher leeren“** entfernt Ergebnisse früherer Läufe. Das passiert nur, wenn der Ordner leer
+   ist oder einen Bericht dieses Programms enthält; ein fremder Ordner wird nie geleert. Ohne das Häkchen warnt
+   der Bericht vor **veralteten** Dateien aus früheren Läufen (deren Platzhalter-Nummern passen nicht zum
+   aktuellen Lauf).
+8. **„Dateinamen bereinigen“** ersetzt auch in Ordner- und Dateinamen, z. B.
+   `backup_srv01.corp.local.log` → `backup_[HOSTNAME_1].log`. Der Bericht zeigt dann nur die bereinigten Namen.
+9. **Archive** (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) werden entpackt, bereinigt und wieder eingepackt
+   (Häkchen „Archive bereinigen“, Standard an). Binäre oder verschlüsselte Einträge fehlen im neuen Archiv und
+   stehen im Bericht.
 
-Bei einem Ordnerlauf bekommt derselbe Wert **in allen Dateien denselben Platzhalter**. Die Platzhalter-Nummern
-sind über den ganzen Lauf fortlaufend.
+Bei einem Ordnerlauf bekommt derselbe Wert **in allen Dateien denselben Platzhalter**, auch in Archiven. Die
+Platzhalter-Nummern sind über den ganzen Lauf fortlaufend.
+
+### Reiter „Antwort zurückübersetzen“
+
+Die KI antwortet mit Platzhaltern, z. B. „Starte den Dienst auf `[HOSTNAME_1]` neu“? Antwort links einfügen,
+rechts stehen wieder die echten Werte (farbig markiert). Oben wählst du, ob die Platzhalter aus dem Reiter
+„Text & Vorschau“ oder aus dem **letzten Ordnerlauf** stammen. Unbekannte Platzhalter werden gemeldet.
+Das funktioniert nur, solange das Programm geöffnet ist, denn die Zuordnung wird nie gespeichert. Den
+zurückübersetzten Text **nicht** wieder an die KI schicken.
 
 Unterstützt werden Textdateien in UTF-8, UTF-16 (z. B. PowerShell-Ausgaben mit `>`), UTF-32, cp1252 und Latin-1.
 Die Kodierung wird automatisch erkannt. Windows-Zeilenenden (`\r\n`) bleiben erhalten. Die Ausgabe ist
@@ -153,7 +175,8 @@ standardmäßig UTF-8.
 - **Eigene Regeln**: Name, Beschreibung, Muster (regulärer Ausdruck), Kategorie und Konfidenz eintragen und
   „Regel übernehmen“ klicken. Im **Testfeld** darunter siehst du beim Tippen sofort, was das Muster findet.
   Tipp: Mit `(?P<value>...)` wird nur ein Teil ersetzt, z. B. `kunde=(?P<value>\w+)` ersetzt nur den
-  Kundennamen.
+  Kundennamen. Muster mit verschachtelten Wiederholungen wie `(a+)+` können extrem langsam werden; der Editor
+  warnt davor und testet sie nicht live.
 - **Eigene Wortlisten**: Kategorie wählen (z. B. Firmennamen, Hostnamen, Benutzernamen, Projektnamen,
   Personennamen) und einen Eintrag pro Zeile eintragen. Diese Wörter werden exakt ersetzt.
 - **Allowlist**: Einträge, die **nie** ersetzt werden, einer pro Zeile. Mit `re:` am Anfang ist der Eintrag ein
@@ -163,7 +186,7 @@ standardmäßig UTF-8.
 ### Reiter „Einstellungen“
 
 Hier lassen sich alle Werte aus `config.json` bearbeiten: Ausgabeordner, Ausgabekodierung, Limits,
-Blockgröße, Platzhalterstil, Schwellen der Modi und Entropie-Schwellen.
+Blockgröße, Platzhalterstil, Ausschlussmuster, Schwellen der Modi und Entropie-Schwellen.
 
 ## 5. Kommandozeile
 
@@ -181,6 +204,9 @@ ipconfig /all | python -m secret_sanitizer - > ipconfig_bereinigt.txt
 
 REM Modus, Kategorien
 python -m secret_sanitizer --mode normal --no-personal --disable HOSTNAME,IP datei.txt
+
+REM Nur prüfen (nichts schreiben), z. B. vor einem Commit
+python -m secret_sanitizer --check src\ config\
 ```
 
 Wichtige Optionen (alle siehe `--help`):
@@ -193,6 +219,12 @@ Wichtige Optionen (alle siehe `--help`):
 | `--disable KAT,…` / `--enable KAT,…` | Kategorien ab-/anschalten (`--list-categories` zeigt alle) |
 | `--output-encoding utf-8\|same\|…` | Kodierung der Ausgabe (`same` = wie Eingabe) |
 | `-y` | große Dateien ohne Rückfrage verarbeiten |
+| `--check` | nur prüfen, nichts schreiben: listet Dateien mit Treffern (ohne Werte), Rückgabewert `3` bei Treffern |
+| `--exclude MUSTER` | zusätzlich überspringen, z. B. `--exclude "*.bak"` (mehrfach möglich) |
+| `--no-exclude` | auch die Standard-Ausschlussmuster (`.git`, `node_modules` …) nicht anwenden |
+| `--clean` | Ausgabeordner vorher leeren (nur wenn er von einem früheren Lauf stammt) |
+| `--sanitize-filenames` | auch Ordner- und Dateinamen bereinigen |
+| `--no-archives` | Archive nicht entpacken, sondern wie Binärdateien überspringen |
 | `--config DATEI`, `--rules DATEI` | andere config.json / user_rules.json |
 | `--no-user-rules` | nur mitgelieferte Regeln |
 
@@ -200,8 +232,17 @@ Hinweis zur Pipe unter Windows: `cmd` gibt Text in der OEM-Codepage (meist cp850
 in der Ausgabe verfälscht erscheinen, die Erkennung selbst ist davon nicht betroffen. Für saubere Umlaute die
 Ausgabe erst in eine Datei schreiben (`ipconfig /all > ip.txt`) und dann die Datei bereinigen.
 
-Rückgabewerte: `0` ok, `1` einzelne Dateien fehlgeschlagen, `2` Bedien- oder Eingabefehler.
-Meldungen auf der Konsole enthalten nur Zähler und relative Pfade, keine Originalwerte.
+Rückgabewerte: `0` ok, `1` einzelne Dateien fehlgeschlagen, `2` Bedien- oder Eingabefehler, `3` Treffer
+gefunden (nur mit `--check`). Meldungen auf der Konsole enthalten nur Zähler und relative Pfade, keine
+Originalwerte.
+
+Beispiel für einen Git-Pre-commit-Hook (`.git/hooks/pre-commit`), der Commits mit Secrets stoppt:
+
+```sh
+#!/bin/sh
+git diff --cached --name-only --diff-filter=ACM -z | xargs -0 -r secret_sanitizer_cli.exe --check || {
+  echo "Möglicherweise Secrets im Commit (siehe oben)."; exit 1; }
+```
 
 ## 6. Was wird erkannt?
 
@@ -210,9 +251,10 @@ Konfidenz gewinnt. Der Modus legt die Mindest-Konfidenz fest.
 
 | Verfahren | Beispiele |
 |---|---|
-| **Bekannte Formate (Regex)** | AWS-Keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic-Keys, JWT, Azure `AccountKey=`, `user:pass@host` in URLs, E-Mail, IPv4/IPv6 (auch private), MAC, Hostnamen/FQDNs |
+| **Bekannte Formate (Regex)** | AWS-Keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic-Keys, Hugging Face `hf_…`, PyPI `pypi-…`, Discord- und Telegram-Bot-Tokens, JWT, Azure `AccountKey=` und SAS-Signaturen `sig=…`, `user:pass@host` in URLs, E-Mail, IPv4/IPv6 (auch private, aber nicht `Version 1.2.3.4`), MAC, Hostnamen/FQDNs |
+| **Telefonnummern** | `+49 171 2345678`, `+49 (0)30 1234567`, `0171/2345678`, `030 12345678` (Kategorie `PHONE`, personenbezogen) |
 | **PEM-Blöcke** | `-----BEGIN … PRIVATE KEY-----` bis `-----END …-----` als Ganzes, auch abgeschnittene Blöcke; Zertifikate |
-| **Kontext (key=value)** | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, Connection-Strings, auch simple Passwörter wie `hunter2` |
+| **Kontext (key=value)** | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, Connection-Strings, auch simple Passwörter wie `hunter2`, Passphrasen mit Leerzeichen (`password: correct horse battery`) und YAML-Blockwerte (`password: \|` mit eingerücktem Wert) |
 | **Kommandozeile** | `mysql -pGEHEIM`, `--password=…`, `curl -u user:pass`, `sshpass -p`, `net user name pw`, `/p:…`, PowerShell `-Password …`, `ConvertTo-SecureString "…"` |
 | **Windows** | SIDs `S-1-5-21-…`, `C:\Users\<Name>\…`, `DOMÄNE\benutzer`, UNC `\\server\share`, NTLM-Hashes (pwdump), `HKEY_USERS\<SID>` |
 | **Linux** | `/home/<name>/…`, `/etc/shadow`-Hashes, SSH-Schlüssel, `known_hosts`, Docker-`config.json`, Kubernetes-Secrets (Base64), Shell-Prompts `user@host` |
@@ -249,6 +291,10 @@ Die Einstellungen liegen im Benutzerordner, nicht im Programmordner:
 | `entropy_min_length` | 16 / 20 / 24 | Mindestlänge je Modus |
 | `mode_thresholds` | 0.3 / 0.5 / 0.75 | Mindest-Konfidenz je Modus |
 | `placeholder_style` | `"[{CATEGORY}_{N}]"` | muss `{CATEGORY}` und `{N}` enthalten |
+| `exclude_patterns` | `.git`, `node_modules`, `*_sanitized` … | Ordner/Dateien im Ordnerlauf überspringen (fnmatch auf Name oder relativen Pfad) |
+| `sanitize_filenames` | `false` | auch Ordner- und Dateinamen bereinigen |
+| `process_archives` | `true` | `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz` entpacken, bereinigen, wieder einpacken |
+| `max_archive_mb` | `500` | Obergrenze für den entpackten Inhalt eines Archivs (Schutz vor Zip-Bomben) |
 
 Eigene Regeln am besten in der Oberfläche anlegen (Reiter „Regeln“). Das Format von `user_rules.json`:
 
@@ -280,20 +326,24 @@ Standardregel abschalten.
 - **Keine Originalwerte in Logs, Berichten oder Fehlermeldungen.** Fehlermeldungen nennen nur die Fehlerart
   (z. B. „keine Berechtigung“), nie den Ausnahmetext. Die Trefferliste in der Oberfläche zeigt Werte nur
   gekürzt an.
-- **Das Mapping (Wert → Platzhalter) liegt nur im Arbeitsspeicher** und wird nie gespeichert. Eine
-  Rückübersetzung gibt es in Version 1 bewusst nicht.
+- **Das Mapping (Wert → Platzhalter) liegt nur im Arbeitsspeicher** und wird nie gespeichert. Die
+  Rückübersetzung von KI-Antworten nutzt genau dieses Mapping und funktioniert deshalb nur, solange das
+  Programm geöffnet ist. Beim Schließen wird es verworfen.
+- **Archive** werden in einen Temp-Ordner entpackt, der nach dem Lauf immer gelöscht wird, auch bei Fehlern
+  oder Abbruch. Pfade wie `../` im Archiv werden abgelehnt, Größen- und Anzahl-Limits schützen vor Zip-Bomben.
 - **Originaldateien werden nie verändert.** Ausgaben landen in einem separaten Ordner. Der Ausgabeordner darf
   nicht der Eingabeordner oder ein übergeordneter Ordner sein. Ausgabedateien werden erst vollständig
   geschrieben und dann umbenannt, halbe Dateien bleiben nicht liegen.
-- Der Bericht enthält nur **relative Pfade** und Zähler.
+- Der Bericht enthält nur **relative Pfade** und Zähler (mit „Dateinamen bereinigen“ nur die bereinigten
+  Namen).
 
 ## 9. Grenzen und bekannte Einschränkungen
 
 - **Keine 100-%-Garantie.** Vor allem Personennamen im Fließtext, unübliche Passwörter ohne Schlüsselwort und
   firmenspezifische Bezeichnungen werden nur gefunden, wenn sie in einer **eigenen Wortliste** stehen oder ein
   erkennbares Muster haben. Namenserkennung per KI (NER) ist erst für Version 2 geplant.
-- **Dateinamen werden nicht bereinigt.** Dateinamen im Ausgabeordner und im Bericht bleiben wie im Original.
-  Sensible Dateinamen vorher umbenennen.
+- **Dateinamen werden standardmäßig nicht bereinigt.** Dafür „Dateinamen bereinigen“ bzw.
+  `--sanitize-filenames` einschalten.
 - Der Modus **Locker** lässt bewusst unsichere Treffer stehen, z. B. Benutzernamen aus `DOMÄNE\name` oder
   allgemeine Hostnamen.
 - Im Modus Streng werden auch öffentliche Domains wie `github.com` ersetzt. Bei Bedarf in die Allowlist
@@ -305,10 +355,12 @@ Standardregel abschalten.
 - **Tempo**: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool etwa 0,2–0,5 MB pro Sekunde,
   weil jede Datei zweimal gelesen wird (erst lernen, dann ersetzen). Große Ordner brauchen also etwas Zeit.
   Der Fortschritt wird angezeigt, abbrechen ist möglich.
-- Archive (`.zip`, `.gz`), Office-Dateien und PDFs werden in Version 1 **nicht** verarbeitet. Binärdateien
-  werden übersprungen und im Bericht aufgeführt.
+- Office-Dateien (`.docx`, `.xlsx`) und PDFs werden **nicht** verarbeitet, ebenso Archive in Archiven.
+  Binärdateien werden übersprungen und im Bericht aufgeführt.
+- Telefonnummern werden nur mit Vorwahl und Trennzeichen erkannt (`030 12345678`), nicht als reine Ziffernfolge.
 - Drag-and-Drop ist für eine spätere Version geplant.
-- Eigene reguläre Ausdrücke können bei ungeschickter Formulierung sehr langsam sein (z. B. `(a+)+`).
+- Eigene reguläre Ausdrücke können bei ungeschickter Formulierung sehr langsam sein (z. B. `(a+)+`). Die
+  Warnung des Editors ist eine Heuristik und findet die typischen, nicht alle Fälle.
 - Die Oberfläche braucht Tk 8.6, wie es die Python-Installer von python.org und die .exe mitbringen. Mit
   Python-Builds, die Tk 9 enthalten, startet customtkinter derzeit nicht (Fehler
   `expected integer but got ""`).
@@ -325,6 +377,8 @@ python -m unittest discover -s tests -t .
   keine Originalwerte enthalten, dass derselbe Wert in mehreren Schreibweisen überall ersetzt wird, die
   blockweise Verarbeitung großer Dateien und die Kommandozeile.
 - GUI-Smoke-Test (braucht ein Display und customtkinter): `python tests/gui_smoke.py`
+- Auf GitHub laufen die Tests bei jedem Push automatisch unter Windows und Linux mit Python 3.10 und 3.13
+  (`.github/workflows/tests.yml`).
 
 Projektstruktur:
 
@@ -333,7 +387,7 @@ secret_sanitizer/
 ├── __main__.py          Einstieg: GUI oder CLI
 ├── cli.py               Kommandozeile
 ├── config.py            APP_NAME, Einstellungen laden/speichern
-├── core/                pipeline, models, rules, merger, replacer, encoding, files
+├── core/                pipeline, models, rules, merger, replacer, encoding, files, archives
 ├── detectors/           regex, context (+ Kommandozeile), wordlist, entropy, validators
 ├── rules/               default_rules.json, user_rules.json (Vorlage)
 └── gui/                 app, widgets, rule_editor
