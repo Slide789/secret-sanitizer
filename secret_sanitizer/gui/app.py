@@ -23,7 +23,8 @@ import customtkinter as ctk
 
 from .. import config
 from ..config import APP_TITLE, APP_VERSION, MODE_LABELS, MODES, Settings, load_settings, save_settings
-from ..core.files import FileRun, LoadedText, RunError, load_text_file, safe_reason, save_sanitized_text
+from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
+                          save_sanitized_text)
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules
@@ -435,8 +436,11 @@ class App(ctk.CTk):
             return
         self.run_preview()
         path, loaded = self.loaded_file
+        name = None
+        if self.settings.sanitize_filenames and self._text_sanitizer is not None:
+            name = sanitize_path_part(self._text_sanitizer, path.name, self.excluded_keys)
         try:
-            dest = save_sanitized_text(path, self.result.text, loaded, self.settings)
+            dest = save_sanitized_text(path, self.result.text, loaded, self.settings, name=name)
         except RunError as exc:
             messagebox.showerror("Speichern", str(exc), parent=self)
             return
@@ -483,6 +487,9 @@ class App(ctk.CTk):
         self.open_out_btn = ctk.CTkButton(run_bar, text="Ausgabeordner öffnen", width=180, state="disabled",
                                           command=self.open_output_folder)
         self.open_out_btn.pack(side="left", padx=8)
+        self.filenames_var = tk.BooleanVar(value=self.settings.sanitize_filenames)
+        ctk.CTkCheckBox(run_bar, text="Dateinamen bereinigen", variable=self.filenames_var,
+                        command=self._filenames_changed).pack(side="left", padx=8)
         self.progress = ctk.CTkProgressBar(tab)
         self.progress.set(0)
         self.progress.grid(row=4, column=0, columnspan=4, sticky="ew")
@@ -500,6 +507,10 @@ class App(ctk.CTk):
         self.samples_box = HighlightTextbox(panes, readonly=True)
         self.samples_box.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
         self._last_output: Path | None = None
+
+    def _filenames_changed(self) -> None:
+        self.settings.sanitize_filenames = bool(self.filenames_var.get())
+        self._persist_settings()
 
     def choose_input_file(self) -> None:
         path = filedialog.askopenfilename(title="Datei wählen", parent=self)
@@ -821,6 +832,7 @@ class App(ctk.CTk):
         self.schedule_preview(immediate=True)
 
     def _sync_settings_form(self) -> None:
+        self.filenames_var.set(self.settings.sanitize_filenames)
         data = self.settings.to_dict()
         for key, var in self.setting_vars.items():
             value = data

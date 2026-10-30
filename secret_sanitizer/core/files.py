@@ -24,6 +24,7 @@ import datetime as _dt
 import fnmatch
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -33,6 +34,7 @@ from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
+from . import merger
 from .replacer import apply_replacements
 
 REPORT_NAME = f"{APP_NAME}_bericht.txt"
@@ -361,8 +363,12 @@ class FileRun:
             except Exception as exc:  # noqa: BLE001 - jeder Fehler wird ohne Inhalt berichtet
                 entry.status, entry.reason = "failed", safe_reason(exc)
 
+        # Zielnamen (bei sanitize_filenames bereinigt; das Mapping kennt jetzt alle Werte)
+        dest_rels = self._dest_names(report) if self.settings.sanitize_filenames else {}
+
         # --- Durchlauf 2 (ersetzen + schreiben) ---
-        written: set = set()
+        written: set = set()     # geschriebene Zielpfade (relativ)
+        done: set = set()        # fertig bearbeitete Quellpfade (relativ)
         if not report.aborted and clean_output:
             clear_output_dir(out_root)
             report.cleaned = True
@@ -373,11 +379,13 @@ class FileRun:
                     break
                 self._report_progress(total + i, total * 2, rel)
                 try:
+                    dest_rel = dest_rels.get(rel, rel)
                     if dry_run:
                         entry.counts = self._process_file(src, entry.encoding, report, None)
                     else:
-                        entry.counts = self._write_file(src, out_root / rel, entry.encoding, report)
-                    written.add(rel)
+                        entry.counts = self._write_file(src, out_root / dest_rel, entry.encoding, report)
+                    written.add(dest_rel)
+                    done.add(rel)
                 except _Cancelled:
                     report.aborted = "vom Benutzer abgebrochen"
                     entry.status, entry.reason = "skipped", "abgebrochen"
@@ -386,9 +394,14 @@ class FileRun:
                     entry.status, entry.reason = "failed", safe_reason(exc)
         if report.aborted:
             for _, rel, entry in todo:
-                if entry.status == "processed" and rel not in written:
+                if entry.status == "processed" and rel not in done:
                     entry.status, entry.reason = "skipped", "abgebrochen"
         self._report_progress(total * 2, total * 2, "")
+        if self.settings.sanitize_filenames:
+            # Im Bericht nur die bereinigten Namen
+            for entry in report.entries:
+                entry.rel_path = dest_rels.get(entry.rel_path, entry.rel_path)
+            report.excluded = [self._sanitize_rel(x) for x in report.excluded]
         if not dry_run:
             report.stale = find_stale(out_root, written)
         report.finished = _now()
@@ -398,6 +411,32 @@ class FileRun:
         return report, out_root
 
     # ------------------------------------------------------------------
+    def _sanitize_rel(self, rel: str) -> str:
+        trailing = "/" if rel.endswith("/") else ""
+        parts = [sanitize_path_part(self.sanitizer, part, self.exclude) for part in rel.rstrip("/").split("/")]
+        return "/".join(parts) + trailing
+
+    def _dest_names(self, report: Report) -> dict:
+        """Relativer Quellpfad -> bereinigter Zielpfad, ohne Kollisionen."""
+        names: dict = {}
+        used: set = {REPORT_NAME.lower()}
+        for entry in report.entries:
+            dest = self._sanitize_rel(entry.rel_path)
+            if dest.lower() in used:
+                folder, _, name = dest.rpartition("/")
+                stem, dot, suffix = name.rpartition(".") if "." in name.lstrip(".") else (name, "", "")
+                n = 2
+                while True:
+                    candidate = f"{stem} ({n}){dot}{suffix}"
+                    candidate = f"{folder}/{candidate}" if folder else candidate
+                    if candidate.lower() not in used:
+                        dest = candidate
+                        break
+                    n += 1
+            used.add(dest.lower())
+            names[entry.rel_path] = dest
+        return names
+
     def _learn_file(self, src: Path, encoding: str) -> str:
         """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
         (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
@@ -497,6 +536,27 @@ def find_stale(out_root: Path, written: set) -> list[str]:
     return stale
 
 
+_INVALID_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_path_part(sanitizer, part: str, exclude=()) -> str:
+    """Bereinigt einen Datei- oder Ordnernamen mit dem Mapping der Sitzung.
+    Zeichen, die unter Windows in Namen verboten sind, werden zu "_".
+
+    In Dateinamen ist "_" meist ein Trenner (backup_db01.firma.local.log),
+    für reguläre Ausdrücke aber ein Wortzeichen. Darum wird zusätzlich eine
+    Variante mit Leerzeichen statt "_" geprüft (gleiche Länge, gleiche
+    Positionen); der bessere Treffer gewinnt."""
+    findings = sanitizer.analyze(part, exclude)
+    if "_" in part:
+        findings = merger.resolve_overlaps(findings + sanitizer.analyze(part.replace("_", " "), exclude))
+    if not findings:
+        return part
+    cleaned = apply_replacements(part, findings, sanitizer.mapping).text
+    cleaned = _INVALID_NAME_CHARS.sub("_", cleaned).rstrip(" .")
+    return cleaned or "_"
+
+
 def _encoding_candidates(encoding: str) -> list[str]:
     out = [encoding]
     for fb in ("cp1252", "latin-1"):
@@ -565,11 +625,12 @@ def load_text_file(path: Path) -> LoadedText:
 
 
 def save_sanitized_text(src: Path, sanitized_text: str, loaded: LoadedText, settings: Settings,
-                        output_dir=None) -> Path:
-    """Speichert einen in der Vorschau bereinigten Text in den Ausgabeordner."""
+                        output_dir=None, name: str | None = None) -> Path:
+    """Speichert einen in der Vorschau bereinigten Text in den Ausgabeordner.
+    name: Dateiname im Ausgabeordner (Standard: wie das Original)."""
     src = Path(src).resolve()
     out_root = resolve_output_dir(src, settings, output_dir)
-    dest = out_root / src.name
+    dest = out_root / (name or src.name)
     if dest.resolve() == src:
         raise RunError("Ausgabe würde Original überschreiben.")
     _write_text_atomic(dest, sanitized_text, output_encoding_for(loaded.encoding, settings.output_encoding),

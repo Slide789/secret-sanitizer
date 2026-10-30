@@ -68,6 +68,9 @@ class Settings:
     mode_thresholds: dict = field(default_factory=lambda: dict(DEFAULT_MODE_THRESHOLDS))
     placeholder_style: str = DEFAULT_PLACEHOLDER_STYLE
     exclude_patterns: list = field(default_factory=lambda: list(DEFAULT_EXCLUDE_PATTERNS))
+    # Ordner- und Dateinamen in der Ausgabe ebenfalls bereinigen (und im Bericht nur
+    # die bereinigten Namen zeigen)
+    sanitize_filenames: bool = False
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:

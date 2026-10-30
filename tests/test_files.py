@@ -157,6 +157,36 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
             FileRun(make_sanitizer()).run(self.input, output_dir=fremd, clean_output=True)
         self.assertTrue((fremd / "wichtig.txt").exists())
 
+    def test_sanitize_filenames(self):
+        host = S["hostname"]
+        (self.input / f"sicherung_{host}").mkdir()
+        (self.input / f"sicherung_{host}" / f"{host}.log").write_text(f"verbunden mit {host}\n", encoding="utf-8")
+        (self.input / f"{host}.log").write_text("x\n", encoding="utf-8")
+        (self.input / "binary" / f"{host}.png").write_bytes(b"\x89PNG\x00\x00")
+        sanitizer = make_sanitizer(sanitize_filenames=True)
+        report, out = FileRun(sanitizer).run(self.input)
+        placeholder = sanitizer.mapping.get(host)
+        self.assertTrue(placeholder)
+        self.assertTrue((out / f"sicherung_{placeholder}" / f"{placeholder}.log").exists())
+        self.assertTrue((out / f"{placeholder}.log").exists())
+        for path in out.rglob("*"):
+            self.assertNotIn(host.lower(), path.name.lower())
+        text = (out / REPORT_NAME).read_text(encoding="utf-8")
+        self.assertNotIn(host.lower(), text.lower())   # auch nicht bei übersprungenen Dateien
+        self.assertIn(f"binary/{placeholder}.png", text)
+        self.assertEqual(report.stale, [])
+
+    def test_sanitized_filename_collisions(self):
+        # Eigener Ordner ohne Fake-Daten, damit 10.1.2.3 sicher [IP_1] wird.
+        # "10.1.2.3.log" wird zu "[IP_1].log" - genau wie die schon vorhandene Datei.
+        src = self.tmp / "neu"
+        src.mkdir()
+        for name in ("10.1.2.3.log", "[IP_1].log"):
+            (src / name).write_text("x\n", encoding="utf-8")
+        report, out = FileRun(make_sanitizer(sanitize_filenames=True)).run(src)
+        names = sorted(p.name for p in out.iterdir() if p.name != REPORT_NAME)
+        self.assertEqual(names, ["[IP_1] (2).log", "[IP_1].log"])
+
     def test_exclude_does_not_apply_to_single_file(self):
         report, _ = FileRun(make_sanitizer(exclude_patterns=["*.log"])).run(self.input / "linux" / "auth.log",
                                                                           output_dir=self.tmp / "aus")
