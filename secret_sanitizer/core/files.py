@@ -24,6 +24,7 @@ import datetime as _dt
 import fnmatch
 import json
 import os
+import shutil
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -69,6 +70,9 @@ class Report:
     aborted: str = ""
     # Per Ausschlussmuster übersprungene Ordner ("name/") und Dateien
     excluded: list = field(default_factory=list)
+    # Dateien im Ausgabeordner, die nicht aus diesem Lauf stammen (frühere Läufe)
+    stale: list = field(default_factory=list)
+    cleaned: bool = False
     # Stichproben bereinigter Zeilen, nur für die Anzeige (nicht im Berichts-File)
     samples: list = field(default_factory=list)
 
@@ -95,6 +99,11 @@ class Report:
         ]
         if self.excluded:
             lines.append(f"Ausgeschlossen (Ausschlussmuster): {len(self.excluded)}")
+        if self.cleaned:
+            lines.append("Ausgabeordner wurde vor dem Lauf geleert.")
+        if self.stale:
+            lines.append(f"WARNUNG: {len(self.stale)} Datei(en) im Ausgabeordner stammen aus einem früheren Lauf "
+                         "(andere Platzhalter-Nummerierung möglich).")
         if self.aborted:
             lines.append(f"ABGEBROCHEN: {self.aborted}")
         totals = self.totals()
@@ -110,6 +119,9 @@ class Report:
                 lines.append(f"{e.rel_path}  [{e.encoding or '-'}]  {detail}")
         if self.excluded:
             lines += ["", "--- ausgeschlossen (Ausschlussmuster) ---"] + list(self.excluded)
+        if self.stale:
+            lines += ["", "--- veraltet (nicht aus diesem Lauf, mit 'Ausgabeordner leeren' entfernen) ---"]
+            lines += list(self.stale)
         lines += ["", "Hinweis: Das Ergebnis vor dem Senden selbst prüfen. Die Erkennung senkt das Risiko,",
                   "bietet aber keine 100-%-Garantie."]
         return "\n".join(lines) + "\n"
@@ -118,6 +130,7 @@ class Report:
         return {
             "input": self.input_name, "mode": self.mode, "started": self.started, "finished": self.finished,
             "aborted": self.aborted, "totals": self.totals(), "excluded": list(self.excluded),
+            "stale": list(self.stale), "cleaned": self.cleaned,
             "files": [{"path": e.rel_path, "status": e.status, "reason": e.reason, "encoding": e.encoding,
                        "size_bytes": e.size_bytes, "counts": e.counts} for e in self.entries],
         }
@@ -297,11 +310,16 @@ class FileRun:
         if self.progress:
             self.progress(done, total, rel)
 
-    def run(self, input_path, output_dir=None, write_report: bool = True) -> tuple[Report, Path]:
+    def run(self, input_path, output_dir=None, write_report: bool = True,
+            clean_output: bool = False) -> tuple[Report, Path]:
+        """clean_output: Ausgabeordner vor dem Schreiben leeren (nur wenn er leer
+        ist oder von einem früheren Lauf stammt, siehe clear_output_dir)."""
         input_path = Path(input_path)
         out_root = resolve_output_dir(input_path, self.settings, output_dir)
         report = Report(input_name=input_path.resolve().name or str(input_path), started=_now(),
                         mode=self.settings.mode)
+        if clean_output:
+            check_clearable(out_root)
         files = collect_files(input_path, out_root, self.settings.exclude_patterns, report.excluded)
         if len(files) > self.settings.max_files_per_run:
             raise RunError(f"Zu viele Dateien ({len(files)}), Limit max_files_per_run = "
@@ -342,6 +360,9 @@ class FileRun:
 
         # --- Durchlauf 2 (ersetzen + schreiben) ---
         written: set = set()
+        if not report.aborted and clean_output:
+            clear_output_dir(out_root)
+            report.cleaned = True
         if not report.aborted:
             for i, (src, rel, entry) in enumerate(todo):
                 if self.cancel.is_set():
@@ -362,6 +383,7 @@ class FileRun:
                 if entry.status == "processed" and rel not in written:
                     entry.status, entry.reason = "skipped", "abgebrochen"
         self._report_progress(total * 2, total * 2, "")
+        report.stale = find_stale(out_root, written)
         report.finished = _now()
         if write_report:
             out_root.mkdir(parents=True, exist_ok=True)
@@ -419,6 +441,45 @@ class FileRun:
                 pass
             raise
         return counts
+
+
+def check_clearable(out_root: Path) -> None:
+    """Darf der Ausgabeordner geleert werden? Nur wenn er fehlt, leer ist oder
+    einen Bericht dieses Programms enthält (also von einem früheren Lauf stammt).
+    So wird nie ein fremder Ordner gelöscht, der versehentlich gewählt wurde."""
+    if not out_root.exists():
+        return
+    if not out_root.is_dir():
+        raise RunError("Der Ausgabeordner ist eine Datei.")
+    if any(out_root.iterdir()) and not (out_root / REPORT_NAME).is_file():
+        raise RunError("Der Ausgabeordner wird nicht geleert: Er ist nicht leer und enthält keinen Bericht "
+                       f"({REPORT_NAME}) eines früheren Laufs. Bitte einen anderen Ordner wählen.")
+
+
+def clear_output_dir(out_root: Path) -> None:
+    check_clearable(out_root)
+    if not out_root.exists():
+        return
+    for child in out_root.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def find_stale(out_root: Path, written: set) -> list[str]:
+    """Dateien im Ausgabeordner, die dieser Lauf nicht geschrieben hat."""
+    if not out_root.is_dir():
+        return []
+    stale = []
+    for path in sorted(out_root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(out_root).as_posix()
+        if rel == REPORT_NAME or rel in written or path.name.startswith(".tmp_"):
+            continue
+        stale.append(rel)
+    return stale
 
 
 def _encoding_candidates(encoding: str) -> list[str]:

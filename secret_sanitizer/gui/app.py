@@ -429,6 +429,8 @@ class App(ctk.CTk):
         ctk.CTkEntry(tab, textvariable=self.output_var,
                      placeholder_text="leer = automatisch <eingabeordner>_sanitized").grid(row=2, column=1, sticky="ew")
         ctk.CTkButton(tab, text="Wählen", width=120, command=self.choose_output_folder).grid(row=2, column=2, padx=6)
+        self.clean_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(tab, text="Ausgabeordner vorher leeren", variable=self.clean_var).grid(row=2, column=3, sticky="w")
 
         run_bar = ctk.CTkFrame(tab, fg_color="transparent")
         run_bar.grid(row=3, column=0, columnspan=4, sticky="ew", pady=8)
@@ -489,6 +491,7 @@ class App(ctk.CTk):
         self.report_box.set_text("")
         self.samples_box.set_text("")
         output = self.output_var.get().strip() or None
+        clean = self.clean_var.get()
         sanitizer = self._new_sanitizer()
 
         def confirm_large(rel: str, size_mb: float) -> bool:
@@ -503,7 +506,7 @@ class App(ctk.CTk):
         def work() -> None:
             try:
                 report, out_root = FileRun(sanitizer, confirm_large=confirm_large, progress=progress,
-                                           cancel=self._cancel).run(src, output_dir=output)
+                                           cancel=self._cancel).run(src, output_dir=output, clean_output=clean)
                 self._queue.put(("done", report, out_root))
             except RunError as exc:
                 self._queue.put(("error", str(exc)))

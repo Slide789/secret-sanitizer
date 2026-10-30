@@ -62,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-y", "--yes", action="store_true",
                    help="Große Dateien ohne Rückfrage verarbeiten.")
     p.add_argument("--no-report", action="store_true", help="Keine Berichtsdatei in den Ausgabeordner schreiben.")
+    p.add_argument("--clean", action="store_true",
+                   help="Ausgabeordner vorher leeren (nur wenn er leer ist oder von einem früheren Lauf stammt).")
     p.add_argument("-q", "--quiet", action="store_true", help="Weniger Ausgaben auf stderr.")
     p.add_argument("--list-categories", action="store_true", help="Kategorien anzeigen und beenden.")
     p.add_argument("--gui", action="store_true", help="GUI starten.")
@@ -170,7 +172,7 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
             output = str(Path(output) / (path.resolve().name or "eingabe"))
         try:
             report, out_root = FileRun(sanitizer, confirm_large=confirm_large, progress=progress).run(
-                path, output_dir=output, write_report=not args.no_report)
+                path, output_dir=output, write_report=not args.no_report, clean_output=args.clean)
         except RunError as exc:
             _err(f"Fehler: {exc}")
             exit_code = EXIT_USAGE

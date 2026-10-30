@@ -131,6 +131,32 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         report, _ = FileRun(make_sanitizer(exclude_patterns=[])).run(self.input, output_dir=self.tmp / "c")
         self.assertEqual(report.excluded, [])
 
+    def test_stale_files_reported(self):
+        out = self.tmp / "aus"
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        (self.input / "linux" / "auth.log").unlink()
+        report, _ = FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        self.assertEqual(report.stale, ["linux/auth.log"])
+        self.assertIn("veraltet", (out / REPORT_NAME).read_text(encoding="utf-8"))
+
+    def test_clean_output(self):
+        out = self.tmp / "aus"
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        (self.input / "linux" / "auth.log").unlink()
+        report, _ = FileRun(make_sanitizer()).run(self.input, output_dir=out, clean_output=True)
+        self.assertTrue(report.cleaned)
+        self.assertEqual(report.stale, [])
+        self.assertFalse((out / "linux" / "auth.log").exists())
+        self.assertTrue((out / "linux" / "env_export.sh").exists())
+
+    def test_clean_refuses_foreign_folder(self):
+        fremd = self.tmp / "fremd"
+        fremd.mkdir()
+        (fremd / "wichtig.txt").write_text("bitte behalten\n", encoding="utf-8")
+        with self.assertRaises(RunError):
+            FileRun(make_sanitizer()).run(self.input, output_dir=fremd, clean_output=True)
+        self.assertTrue((fremd / "wichtig.txt").exists())
+
     def test_exclude_does_not_apply_to_single_file(self):
         report, _ = FileRun(make_sanitizer(exclude_patterns=["*.log"])).run(self.input / "linux" / "auth.log",
                                                                           output_dir=self.tmp / "aus")
