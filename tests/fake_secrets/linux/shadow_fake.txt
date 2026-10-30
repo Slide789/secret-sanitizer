@@ -1,0 +1,4 @@
+root:$6$k6rBvHzlkZQP0tOg$XeuEMASFdOa1QmRwPhN4tchxVwzIg1JCQNd5x.FsqzrXVr02N4ySrTgaqraAVmxhzz6aVR1vFXzvRJPK4yCnf4:19000:0:99999:7:::
+daemon:*:19000:0:99999:7:::
+jdoe:$1$eOu53.pO$V7orn3EHhUVcsOq.mr.gUV:19001:0:99999:7:::
+webadmin:$2b$12$xNJ8wQA34lkODVowUtlFIrdIGQuIQ7el3fJhe8ZsI2E2BulXLRUcI:19002:0:99999:7:::

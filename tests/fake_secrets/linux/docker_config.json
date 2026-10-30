@@ -1,0 +1,7 @@
+{
+  "auths": {
+    "registry.fake-firma.de": {
+      "auth": "ZmFrZXVzZXI6RmFrZURvY2tlclB3MQ=="
+    }
+  }
+}

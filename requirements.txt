@@ -1,0 +1,3 @@
+# Nur die GUI braucht ein Zusatzpaket. Erkennung, Regeln und Kommandozeile
+# laufen ausschließlich mit der Python-Standardbibliothek (ab Python 3.10).
+customtkinter>=5.2.2

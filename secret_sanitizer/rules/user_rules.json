@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "description": "Vorlage für eigene Regeln, Wortlisten und Allowlist. Die GUI speichert die echte Datei im Benutzer-Konfigurationsordner.",
+  "rules": [],
+  "wordlists": [],
+  "allowlist": []
+}

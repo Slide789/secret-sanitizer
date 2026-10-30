@@ -1,0 +1,5 @@
+C:\Users\ErikaM> net user administrator NetUserFake9
+Der Befehl wurde erfolgreich ausgeführt. Größe: 12 Kb, Grüße an Jürgen
+C:\Users\ErikaM> net use Z: \\fileserver01\finanzen$ /user:FAKECORP\mmuster /p:NetUserFake9
+C:\> type C:\Windows\System32\drivers\etc\hosts
+Registry: HKEY_USERS\S-1-5-21-1004336348-1177238915-682003330-1001\Software\Microsoft

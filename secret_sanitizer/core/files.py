@@ -1,0 +1,470 @@
+"""Datei- und Ordnerlauf: Binär-Erkennung, Limits, blockweise Verarbeitung, Bericht.
+
+Ablauf eines Laufs (eine Datei oder ein ganzer Ordner):
+  Durchlauf 1 ("lernen"): alle Dateien lesen, Treffer erkennen, Werte ins
+      Mapping eintragen. So bekommt derselbe Wert in allen Dateien denselben
+      Platzhalter, und auch Stellen VOR dem ersten Auftreten werden ersetzt.
+  Durchlauf 2 ("schreiben"): alle Dateien erneut lesen, ersetzen und in den
+      Ausgabeordner schreiben (gleiche Unterordnerstruktur).
+
+Große Dateien werden blockweise gelesen. Blöcke werden an Zeilenenden
+geschnitten und mit Überlappung analysiert; ein Treffer, der über die
+Schnittstelle reicht (z. B. ein PEM-Block), verschiebt den Schnitt nach hinten.
+
+Sicherheit:
+  - Originale werden nie verändert (nur gelesen).
+  - Ausgabeordner darf nicht der Eingabeordner oder ein übergeordneter Ordner sein.
+  - Bericht und Fehlermeldungen enthalten nur relative Pfade, Zähler und
+    allgemeine Fehlerarten, niemals Dateiinhalte oder Ausnahmetexte.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import os
+import tempfile
+import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Iterator
+
+from ..config import APP_NAME, Settings
+from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
+from .replacer import apply_replacements
+
+REPORT_NAME = f"{APP_NAME}_bericht.txt"
+MAX_SAMPLES = 12
+
+STATUS_LABELS = {"processed": "bearbeitet", "skipped": "übersprungen", "failed": "fehlgeschlagen"}
+
+
+class RunError(Exception):
+    """Fehler, der den ganzen Lauf verhindert (z. B. Limit überschritten).
+    Die Meldung enthält keine Dateiinhalte."""
+
+
+@dataclass
+class FileEntry:
+    rel_path: str
+    status: str = "processed"
+    reason: str = ""
+    encoding: str = ""
+    size_bytes: int = 0
+    counts: dict = field(default_factory=dict)
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values())
+
+
+@dataclass
+class Report:
+    input_name: str
+    started: str = ""
+    finished: str = ""
+    mode: str = ""
+    entries: list = field(default_factory=list)
+    aborted: str = ""
+    # Stichproben bereinigter Zeilen, nur für die Anzeige (nicht im Berichts-File)
+    samples: list = field(default_factory=list)
+
+    def by_status(self, status: str) -> list:
+        return [e for e in self.entries if e.status == status]
+
+    def totals(self) -> dict:
+        totals: dict = {}
+        for e in self.entries:
+            for cat, n in e.counts.items():
+                totals[cat] = totals.get(cat, 0) + n
+        return dict(sorted(totals.items()))
+
+    def to_text(self) -> str:
+        lines = [
+            f"Bericht {APP_NAME}",
+            f"Eingabe: {self.input_name}",
+            f"Modus: {self.mode}",
+            f"Start: {self.started}   Ende: {self.finished}",
+            "",
+            f"Bearbeitet: {len(self.by_status('processed'))}   "
+            f"Übersprungen: {len(self.by_status('skipped'))}   "
+            f"Fehlgeschlagen: {len(self.by_status('failed'))}",
+        ]
+        if self.aborted:
+            lines.append(f"ABGEBROCHEN: {self.aborted}")
+        totals = self.totals()
+        if totals:
+            lines.append("Ersetzungen gesamt: " + ", ".join(f"{k}={v}" for k, v in totals.items()))
+        for status in ("processed", "skipped", "failed"):
+            entries = self.by_status(status)
+            if not entries:
+                continue
+            lines += ["", f"--- {STATUS_LABELS[status]} ---"]
+            for e in entries:
+                detail = e.reason or (", ".join(f"{k}={v}" for k, v in sorted(e.counts.items())) or "keine Treffer")
+                lines.append(f"{e.rel_path}  [{e.encoding or '-'}]  {detail}")
+        lines += ["", "Hinweis: Das Ergebnis vor dem Senden selbst prüfen. Die Erkennung senkt das Risiko,",
+                  "bietet aber keine 100-%-Garantie."]
+        return "\n".join(lines) + "\n"
+
+    def to_dict(self) -> dict:
+        return {
+            "input": self.input_name, "mode": self.mode, "started": self.started, "finished": self.finished,
+            "aborted": self.aborted, "totals": self.totals(),
+            "files": [{"path": e.rel_path, "status": e.status, "reason": e.reason, "encoding": e.encoding,
+                       "size_bytes": e.size_bytes, "counts": e.counts} for e in self.entries],
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
+
+
+def _now() -> str:
+    return _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def safe_reason(exc: BaseException) -> str:
+    """Allgemeine Fehlerbeschreibung OHNE str(exc) (könnte Inhalte enthalten)."""
+    name = type(exc).__name__
+    if isinstance(exc, PermissionError):
+        return "keine Berechtigung"
+    if isinstance(exc, FileNotFoundError):
+        return "Datei nicht gefunden"
+    if isinstance(exc, UnicodeError):
+        return f"Kodierungsfehler ({name})"
+    if isinstance(exc, MemoryError):
+        return "zu wenig Arbeitsspeicher"
+    if isinstance(exc, OSError):
+        return f"Lese-/Schreibfehler ({name})"
+    return f"interner Fehler ({name})"
+
+
+# ----------------------------------------------------------------------
+# Pfade
+# ----------------------------------------------------------------------
+
+def default_output_dir(input_path: Path) -> Path:
+    """<eingabeordner>_sanitized neben dem Eingabeordner.
+    Bei einer einzelnen Datei ist der Eingabeordner der Ordner der Datei."""
+    input_path = Path(input_path).resolve()
+    folder = input_path if input_path.is_dir() else input_path.parent
+    if folder.parent == folder:  # Laufwerkswurzel wie C:\
+        return folder / f"{APP_NAME}_sanitized"
+    return folder.parent / f"{folder.name}_sanitized"
+
+
+def resolve_output_dir(input_path: Path, settings: Settings, output_dir: str | Path | None = None) -> Path:
+    chosen = output_dir or settings.output_dir
+    out = Path(chosen).expanduser().resolve() if chosen else default_output_dir(input_path)
+    input_path = Path(input_path).resolve()
+    in_folder = input_path if input_path.is_dir() else input_path.parent
+    if out == in_folder or out in in_folder.parents:
+        raise RunError("Der Ausgabeordner darf nicht der Eingabeordner oder ein übergeordneter Ordner sein.")
+    return out
+
+
+def _is_within(path: Path, folder: Path) -> bool:
+    try:
+        path.relative_to(folder)
+        return True
+    except ValueError:
+        return False
+
+
+def collect_files(input_path: Path, out_root: Path) -> list[tuple[Path, str]]:
+    """(Quelldatei, relativer Pfad) für eine Datei oder alle Dateien eines Ordners."""
+    input_path = Path(input_path).resolve()
+    if input_path.is_file():
+        return [(input_path, input_path.name)]
+    if not input_path.is_dir():
+        raise RunError("Eingabe nicht gefunden.")
+    result = []
+    for dirpath, dirnames, filenames in os.walk(input_path, followlinks=False):
+        current = Path(dirpath)
+        # Ausgabeordner (falls innerhalb der Eingabe) nicht erneut verarbeiten
+        dirnames[:] = sorted(d for d in dirnames
+                             if not _is_within((current / d).resolve(), out_root) and not (current / d).is_symlink())
+        for name in sorted(filenames):
+            path = current / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            result.append((path, path.relative_to(input_path).as_posix()))
+    return result
+
+
+# ----------------------------------------------------------------------
+# Lesen in Blöcken
+# ----------------------------------------------------------------------
+
+def sniff(path: Path) -> str | None:
+    with open(path, "rb") as fh:
+        return detect_encoding(fh.read(SAMPLE_SIZE))
+
+
+def read_chunks(path: Path, encoding: str, chunk_size: int) -> Iterator[str]:
+    """Liest Text blockweise; \\r\\n wird zu \\n (auch über Blockgrenzen)."""
+    with open(path, "r", encoding=encoding, newline="") as fh:
+        while True:
+            chunk = fh.read(chunk_size)
+            if not chunk:
+                return
+            if chunk.endswith("\r"):
+                chunk += fh.read(1)
+            yield chunk.replace("\r\n", "\n")
+
+
+def file_newline(path: Path, encoding: str) -> str:
+    with open(path, "r", encoding=encoding, newline="") as fh:
+        return dominant_newline(fh.read(SAMPLE_SIZE))
+
+
+def _choose_cut(buffer: str, chunk_size: int) -> int:
+    idx = buffer.rfind("\n", 0, chunk_size)
+    return idx + 1 if idx > 0 else chunk_size
+
+
+def iter_segments(chunks: Iterator[str], chunk_size: int, overlap: int,
+                  handler: Callable[[str, int], int], cancel: threading.Event | None = None) -> None:
+    """Ruft handler(buffer, cut) für jeden Abschnitt auf. Der Handler
+    verarbeitet buffer[:cut] (mit buffer[cut:] als Vorschau) und gibt den
+    tatsächlich verwendeten Schnitt zurück (>= cut)."""
+    buffer = ""
+    for chunk in chunks:
+        if cancel is not None and cancel.is_set():
+            raise _Cancelled()
+        buffer += chunk
+        while len(buffer) >= chunk_size + overlap:
+            cut = handler(buffer, _choose_cut(buffer, chunk_size))
+            buffer = buffer[cut:]
+    if buffer:
+        handler(buffer, len(buffer))
+
+
+class _Cancelled(Exception):
+    pass
+
+
+# ----------------------------------------------------------------------
+# Lauf
+# ----------------------------------------------------------------------
+
+class FileRun:
+    """Ein Lauf über eine Datei oder einen Ordner mit einem gemeinsamen Mapping."""
+
+    def __init__(self, sanitizer, settings: Settings | None = None,
+                 confirm_large: Callable[[str, float], bool] | None = None,
+                 progress: Callable[[int, int, str], None] | None = None,
+                 cancel: threading.Event | None = None, exclude=()) -> None:
+        self.sanitizer = sanitizer
+        self.settings = settings or sanitizer.settings
+        self.confirm_large = confirm_large
+        self.progress = progress
+        self.cancel = cancel or threading.Event()
+        self.exclude = tuple(exclude)
+
+    def _report_progress(self, done: int, total: int, rel: str) -> None:
+        if self.progress:
+            self.progress(done, total, rel)
+
+    def run(self, input_path, output_dir=None, write_report: bool = True) -> tuple[Report, Path]:
+        input_path = Path(input_path)
+        out_root = resolve_output_dir(input_path, self.settings, output_dir)
+        report = Report(input_name=input_path.resolve().name or str(input_path), started=_now(),
+                        mode=self.settings.mode)
+        files = collect_files(input_path, out_root)
+        if len(files) > self.settings.max_files_per_run:
+            raise RunError(f"Zu viele Dateien ({len(files)}), Limit max_files_per_run = "
+                           f"{self.settings.max_files_per_run}.")
+        limit = self.settings.max_file_size_mb * 1024 * 1024
+        total = len(files)
+
+        # --- Vorprüfung + Durchlauf 1 (lernen) ---
+        todo: list[tuple[Path, str, FileEntry]] = []
+        for i, (src, rel) in enumerate(files):
+            if self.cancel.is_set():
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            self._report_progress(i, total * 2, rel)
+            entry = FileEntry(rel)
+            report.entries.append(entry)
+            try:
+                entry.size_bytes = src.stat().st_size
+                encoding = sniff(src)
+                if encoding is None:
+                    entry.status, entry.reason = "skipped", "Binärdatei"
+                    continue
+                entry.encoding = encoding
+                if entry.size_bytes > limit:
+                    size_mb = entry.size_bytes / 1024 / 1024
+                    if not (self.confirm_large and self.confirm_large(rel, size_mb)):
+                        entry.status = "skipped"
+                        entry.reason = f"größer als {self.settings.max_file_size_mb:g} MB (max_file_size_mb)"
+                        continue
+                entry.encoding = self._learn_file(src, encoding)
+                todo.append((src, rel, entry))
+            except _Cancelled:
+                report.aborted = "vom Benutzer abgebrochen"
+                entry.status, entry.reason = "skipped", "abgebrochen"
+                break
+            except Exception as exc:  # noqa: BLE001 - jeder Fehler wird ohne Inhalt berichtet
+                entry.status, entry.reason = "failed", safe_reason(exc)
+
+        # --- Durchlauf 2 (ersetzen + schreiben) ---
+        written: set = set()
+        if not report.aborted:
+            for i, (src, rel, entry) in enumerate(todo):
+                if self.cancel.is_set():
+                    report.aborted = "vom Benutzer abgebrochen"
+                    break
+                self._report_progress(total + i, total * 2, rel)
+                try:
+                    entry.counts = self._write_file(src, out_root / rel, entry.encoding, report)
+                    written.add(rel)
+                except _Cancelled:
+                    report.aborted = "vom Benutzer abgebrochen"
+                    entry.status, entry.reason = "skipped", "abgebrochen"
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    entry.status, entry.reason = "failed", safe_reason(exc)
+        if report.aborted:
+            for _, rel, entry in todo:
+                if entry.status == "processed" and rel not in written:
+                    entry.status, entry.reason = "skipped", "abgebrochen"
+        self._report_progress(total * 2, total * 2, "")
+        report.finished = _now()
+        if write_report:
+            out_root.mkdir(parents=True, exist_ok=True)
+            _write_text_atomic(out_root / REPORT_NAME, report.to_text(), "utf-8", "\n")
+        return report, out_root
+
+    # ------------------------------------------------------------------
+    def _learn_file(self, src: Path, encoding: str) -> str:
+        """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
+        (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
+        s = self.settings
+
+        def handler(buffer: str, cut: int) -> int:
+            findings = self.sanitizer.learn(buffer, self.exclude)
+            ends = [f.end for f in findings if f.start < cut]
+            return max([cut] + ends)
+
+        for enc in _encoding_candidates(encoding):
+            try:
+                iter_segments(read_chunks(src, enc, s.chunk_size), s.chunk_size, s.chunk_overlap, handler, self.cancel)
+                return enc
+            except UnicodeDecodeError:
+                continue
+        raise UnicodeError("keine passende Kodierung")
+
+    def _write_file(self, src: Path, dest: Path, encoding: str, report: Report) -> dict:
+        s = self.settings
+        if dest.resolve() == src.resolve():
+            raise RunError("Ausgabe würde Original überschreiben")  # pragma: no cover (durch resolve_output_dir verhindert)
+        newline = file_newline(src, encoding)
+        out_encoding = output_encoding_for(encoding, s.output_encoding)
+        counts: dict = {}
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
+        try:
+            with os.fdopen(fd, "w", encoding=out_encoding, newline="") as out:
+                def handler(buffer: str, cut: int) -> int:
+                    findings = self.sanitizer.analyze(buffer, self.exclude)
+                    keep = [f for f in findings if f.start < cut]
+                    cut = max([cut] + [f.end for f in keep])
+                    result = apply_replacements(buffer[:cut], keep, self.sanitizer.mapping)
+                    for rep in result.replacements:
+                        counts[rep.category] = counts.get(rep.category, 0) + 1
+                    _collect_samples(result, report)
+                    out.write(restore_newlines(result.text, newline))
+                    return cut
+
+                iter_segments(read_chunks(src, encoding, s.chunk_size), s.chunk_size, s.chunk_overlap,
+                              handler, self.cancel)
+            os.replace(tmp, dest)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return counts
+
+
+def _encoding_candidates(encoding: str) -> list[str]:
+    out = [encoding]
+    for fb in ("cp1252", "latin-1"):
+        if fb not in out:
+            out.append(fb)
+    return out
+
+
+def _collect_samples(result, report: Report) -> None:
+    if len(report.samples) >= MAX_SAMPLES or not result.replacements:
+        return
+    lines = result.text.split("\n")
+    for rep in result.replacements:
+        if len(report.samples) >= MAX_SAMPLES:
+            break
+        line_no = result.text.count("\n", 0, rep.out_start)
+        line = lines[line_no]
+        sample = line if len(line) <= 200 else line[:200] + " …"
+        if sample not in report.samples:
+            report.samples.append(sample)
+
+
+def _write_text_atomic(path: Path, text: str, encoding: str, newline: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as fh:
+            fh.write(restore_newlines(text, newline))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# ----------------------------------------------------------------------
+# Einzeldatei für die Vorschau (GUI)
+# ----------------------------------------------------------------------
+
+@dataclass
+class LoadedText:
+    text: str          # mit \n-Zeilenenden
+    encoding: str
+    newline: str
+    size_bytes: int
+
+
+def load_text_file(path: Path) -> LoadedText:
+    """Liest eine (kleine) Textdatei komplett für die Vorschau.
+    Wirft RunError bei Binärdateien (Meldung ohne Inhalt)."""
+    path = Path(path)
+    data = path.read_bytes()
+    encoding = detect_encoding(data[:SAMPLE_SIZE])
+    if encoding is None:
+        raise RunError("Binärdatei, wird nicht verarbeitet.")
+    for enc in _encoding_candidates(encoding):
+        try:
+            raw = data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    newline = dominant_newline(raw)
+    return LoadedText(raw.replace("\r\n", "\n"), enc, newline, len(data))
+
+
+def save_sanitized_text(src: Path, sanitized_text: str, loaded: LoadedText, settings: Settings,
+                        output_dir=None) -> Path:
+    """Speichert einen in der Vorschau bereinigten Text in den Ausgabeordner."""
+    src = Path(src).resolve()
+    out_root = resolve_output_dir(src, settings, output_dir)
+    dest = out_root / src.name
+    if dest.resolve() == src:
+        raise RunError("Ausgabe würde Original überschreiben.")
+    _write_text_atomic(dest, sanitized_text, output_encoding_for(loaded.encoding, settings.output_encoding),
+                       loaded.newline)
+    return dest

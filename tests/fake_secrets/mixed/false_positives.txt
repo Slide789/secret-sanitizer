@@ -1,0 +1,27 @@
+d41d8cd98f00b204e9800998ecf8427e
+da39a3ee5e6b4b0d3255bfef95601890afd80709
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+3f2504e0-4f89-11d3-9a0c-0305e82c3301
+{6B29FC40-CA47-1067-B31D-00DD010662DA}
+/usr/lib/x86_64-linux-gnu/libssl.so.3
+C:\Windows\System32\drivers\etc\hosts
+C:\Program Files\Common Files
+HKLM\SOFTWARE\Microsoft
+1234567890
+2026-10-30T14:12:00Z
+12:30:45
+getUserNameFromDatabase
+test_user_account_2024
+README.md
+config.json
+token_expires_in
+Version 10.0.19045
+localhost
+127.0.0.1
+255.255.255.0
+-p 8080:80
+ssh -p 2222
+password_file
+Die Datei README.md und config.json liegen unter /usr/lib/x86_64-linux-gnu/libssl.so.3.
+Build 2026-10-30T14:12:00Z um 12:30:45, Version 10.0.19045, Nummer 1234567890.
+Der Aufruf getUserNameFromDatabase liefert test_user_account_2024.

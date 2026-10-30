@@ -1,0 +1,341 @@
+"""Regelformat: Laden, Prüfen und Speichern von Regeln, Wortlisten und Allowlist.
+
+Format einer Regel (JSON):
+    {
+      "id": "aws_access_key",          eindeutige Kennung
+      "name": "AWS Access Key",        Anzeigename
+      "description": "...",            Erklärung (JSON kennt keine Kommentare)
+      "category": "API_KEY",           Kategorie aus models.CATEGORIES
+      "detector": "regex",             "regex" oder "cmdline"
+      "pattern": "...",                regulärer Ausdruck (Python-Syntax)
+      "flags": ["IGNORECASE"],         optional: IGNORECASE, MULTILINE, DOTALL
+      "confidence": 0.95,              Konfidenz 0..1
+      "validator": "luhn",             optional: luhn, iban, ipv4, ipv6
+      "hint": ["akia"],                optional: Regel nur prüfen, wenn mindestens
+                                       einer dieser Texte vorkommt (Tempo)
+      "enabled": true
+    }
+Enthält das Muster eine benannte Gruppe "value", wird nur dieser Teil ersetzt
+(z. B. nur das Passwort hinter "password=").
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+from .models import CATEGORIES
+
+ALLOWED_FLAGS = {"IGNORECASE": re.IGNORECASE, "MULTILINE": re.MULTILINE, "DOTALL": re.DOTALL}
+ALLOWED_DETECTORS = ("regex", "cmdline")
+ALLOWED_VALIDATORS = ("luhn", "iban", "ipv4", "ipv6")
+
+
+class RuleError(ValueError):
+    """Fehler in einer Regel. Die Meldung enthält nie Textinhalte, nur die
+    Regel-ID und die Art des Fehlers."""
+
+
+@dataclass
+class Rule:
+    id: str
+    name: str
+    category: str
+    pattern: str
+    description: str = ""
+    detector: str = "regex"
+    flags: list = field(default_factory=list)
+    confidence: float = 0.8
+    validator: str | None = None
+    enabled: bool = True
+    hint: list = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self._compiled: re.Pattern | None = None
+        self.hint = [str(h).lower() for h in (self.hint or []) if str(h)]
+
+    @property
+    def compiled(self) -> re.Pattern:
+        if self._compiled is None:
+            self._compiled = compile_pattern(self.pattern, self.flags, self.id)
+        return self._compiled
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        if not data.get("validator"):
+            data.pop("validator", None)
+        if not data.get("flags"):
+            data.pop("flags", None)
+        if not data.get("hint"):
+            data.pop("hint", None)
+        return data
+
+
+@dataclass
+class Wordlist:
+    id: str
+    name: str
+    category: str
+    words: list = field(default_factory=list)
+    description: str = ""
+    ignore_case: bool = True
+    enabled: bool = True
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class AllowEntry:
+    """Ein Eintrag der Allowlist: wird nie ersetzt.
+    regex=False: exakter Vergleich (ohne Groß-/Kleinschreibung)."""
+
+    value: str
+    regex: bool = False
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        self._compiled = None
+
+    @property
+    def compiled(self) -> re.Pattern:
+        if self._compiled is None:
+            self._compiled = compile_pattern(self.value, ["IGNORECASE"], "allowlist")
+        return self._compiled
+
+    def matches(self, candidate: str) -> bool:
+        if self.regex:
+            return self.compiled.fullmatch(candidate) is not None
+        return candidate.casefold() == self.value.casefold()
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class ContextKeywords:
+    """Schlüsselwörter für die Kontext-Heuristik (key=value)."""
+
+    category: str
+    keywords: list
+    confidence: float = 0.85
+    description: str = ""
+
+
+def compile_pattern(pattern: str, flags, rule_id: str) -> re.Pattern:
+    value = 0
+    for name in flags or []:
+        if name not in ALLOWED_FLAGS:
+            raise RuleError(f"Regel '{rule_id}': unbekanntes Flag '{name}'")
+        value |= ALLOWED_FLAGS[name]
+    try:
+        return re.compile(pattern, value)
+    except re.error as exc:
+        # exc.msg enthält nur die Fehlerart, nicht den untersuchten Text.
+        raise RuleError(f"Regel '{rule_id}': ungültiger regulärer Ausdruck ({exc.msg}, Position {exc.pos})") from None
+
+
+def rule_from_dict(data: dict) -> Rule:
+    if not isinstance(data, dict):
+        raise RuleError("Regel ist kein Objekt")
+    rule_id = str(data.get("id") or "").strip()
+    if not rule_id:
+        raise RuleError("Regel ohne 'id'")
+    category = str(data.get("category") or "CUSTOM")
+    if category not in CATEGORIES:
+        raise RuleError(f"Regel '{rule_id}': unbekannte Kategorie '{category}'")
+    detector = str(data.get("detector") or "regex")
+    if detector not in ALLOWED_DETECTORS:
+        raise RuleError(f"Regel '{rule_id}': unbekannter Detektor '{detector}'")
+    validator = data.get("validator") or None
+    if validator is not None and validator not in ALLOWED_VALIDATORS:
+        raise RuleError(f"Regel '{rule_id}': unbekannter Validator '{validator}'")
+    try:
+        confidence = float(data.get("confidence", 0.8))
+    except (TypeError, ValueError):
+        raise RuleError(f"Regel '{rule_id}': Konfidenz ist keine Zahl") from None
+    if not 0.0 <= confidence <= 1.0:
+        raise RuleError(f"Regel '{rule_id}': Konfidenz muss zwischen 0 und 1 liegen")
+    pattern = data.get("pattern")
+    if not isinstance(pattern, str) or not pattern:
+        raise RuleError(f"Regel '{rule_id}': Muster fehlt")
+    rule = Rule(
+        id=rule_id,
+        name=str(data.get("name") or rule_id),
+        description=str(data.get("description") or ""),
+        category=category,
+        detector=detector,
+        pattern=pattern,
+        flags=list(data.get("flags") or []),
+        confidence=confidence,
+        validator=validator,
+        enabled=bool(data.get("enabled", True)),
+        hint=list(data.get("hint") or []),
+    )
+    rule.compiled  # prüft das Muster sofort
+    if rule.compiled.match(""):
+        raise RuleError(f"Regel '{rule_id}': Muster passt auf leeren Text")
+    return rule
+
+
+def wordlist_from_dict(data: dict) -> Wordlist:
+    wl_id = str(data.get("id") or "").strip()
+    if not wl_id:
+        raise RuleError("Wortliste ohne 'id'")
+    category = str(data.get("category") or "CUSTOM")
+    if category not in CATEGORIES:
+        raise RuleError(f"Wortliste '{wl_id}': unbekannte Kategorie '{category}'")
+    words = [str(w).strip() for w in (data.get("words") or []) if str(w).strip()]
+    return Wordlist(
+        id=wl_id,
+        name=str(data.get("name") or wl_id),
+        description=str(data.get("description") or ""),
+        category=category,
+        words=words,
+        ignore_case=bool(data.get("ignore_case", True)),
+        enabled=bool(data.get("enabled", True)),
+    )
+
+
+def allow_from_dict(data) -> AllowEntry:
+    if isinstance(data, str):
+        return AllowEntry(value=data)
+    entry = AllowEntry(value=str(data.get("value") or ""), regex=bool(data.get("regex", False)),
+                       description=str(data.get("description") or ""))
+    if not entry.value:
+        raise RuleError("Allowlist-Eintrag ohne Wert")
+    if entry.regex:
+        compile_pattern(entry.value, [], "allowlist")
+    return entry
+
+
+@dataclass
+class RuleSet:
+    """Alle Regeln zusammen: mitgelieferte + eigene."""
+
+    rules: list = field(default_factory=list)
+    wordlists: list = field(default_factory=list)
+    allowlist: list = field(default_factory=list)
+    context_keywords: list = field(default_factory=list)
+    context_key_excludes: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+
+    def enabled_rules(self, detector: str) -> list:
+        return [r for r in self.rules if r.enabled and r.detector == detector]
+
+    def is_allowed(self, value: str) -> bool:
+        exact, matchers = self._allow_matchers()
+        if value.lower() in exact:
+            return True
+        return any(m.fullmatch(value) is not None for m in matchers)
+
+    def _allow_matchers(self):
+        """Exakte Einträge als Menge, Regex-Einträge möglichst als ein
+        kombiniertes Muster (zwischengespeichert, wird bei Änderung der
+        Allowlist neu gebaut). Lassen sich die Einträge nicht kombinieren
+        (z. B. "(?i)" mitten im Muster oder doppelte Gruppennamen), wird jeder
+        einzeln geprüft."""
+        signature = (id(self.allowlist), len(self.allowlist))
+        cached = getattr(self, "_allow_cache", None)
+        if cached is None or cached[0] != signature:
+            exact = {a.value.lower() for a in self.allowlist if not a.regex}
+            entries = [a for a in self.allowlist if a.regex]
+            matchers: list = []
+            if entries:
+                try:
+                    matchers = [re.compile("|".join(f"(?:{a.value})" for a in entries), re.IGNORECASE)]
+                except re.error:
+                    matchers = [a.compiled for a in entries]
+            cached = (signature, exact, matchers)
+            self._allow_cache = cached
+        return cached[1], cached[2]
+
+
+@dataclass
+class UserRules:
+    """Inhalt von user_rules.json (wird von der GUI verwaltet)."""
+
+    rules: list = field(default_factory=list)
+    wordlists: list = field(default_factory=list)
+    allowlist: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "version": 1,
+            "description": "Eigene Regeln, Wortlisten und Allowlist. Wird von der GUI verwaltet.",
+            "rules": [r.to_dict() for r in self.rules],
+            "wordlists": [w.to_dict() for w in self.wordlists],
+            "allowlist": [a.to_dict() for a in self.allowlist],
+        }
+
+
+def _read_json(path: Path) -> dict:
+    with open(path, "r", encoding="utf-8-sig") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise RuleError(f"{Path(path).name}: kein JSON-Objekt")
+    return data
+
+
+def _parse_entries(items, parser, errors: list) -> list:
+    out = []
+    for item in items or []:
+        try:
+            out.append(parser(item))
+        except RuleError as exc:
+            errors.append(str(exc))
+    return out
+
+
+def load_user_rules(path: Path) -> UserRules:
+    path = Path(path)
+    if not path.exists():
+        return UserRules()
+    try:
+        data = _read_json(path)
+    except (OSError, ValueError) as exc:
+        return UserRules(errors=[f"{path.name} konnte nicht gelesen werden ({type(exc).__name__})"])
+    errors: list = []
+    return UserRules(
+        rules=_parse_entries(data.get("rules"), rule_from_dict, errors),
+        wordlists=_parse_entries(data.get("wordlists"), wordlist_from_dict, errors),
+        allowlist=_parse_entries(data.get("allowlist"), allow_from_dict, errors),
+        errors=errors,
+    )
+
+
+def save_user_rules(user_rules: UserRules, path: Path) -> None:
+    from ..config import write_json_atomic
+
+    write_json_atomic(Path(path), user_rules.to_dict())
+
+
+def load_ruleset(default_path: Path, user_path: Path | None = None) -> RuleSet:
+    data = _read_json(Path(default_path))
+    errors: list = []
+    ruleset = RuleSet(
+        rules=_parse_entries(data.get("rules"), rule_from_dict, errors),
+        wordlists=_parse_entries(data.get("wordlists"), wordlist_from_dict, errors),
+        allowlist=_parse_entries(data.get("allowlist"), allow_from_dict, errors),
+        context_keywords=[ContextKeywords(**ck) for ck in data.get("context_keywords", [])],
+        context_key_excludes=list(data.get("context_key_excludes", [])),
+        errors=errors,
+    )
+    if user_path is not None:
+        user = load_user_rules(Path(user_path))
+        merge_user_rules(ruleset, user)
+    return ruleset
+
+
+def merge_user_rules(ruleset: RuleSet, user: UserRules) -> RuleSet:
+    """Hängt eigene Regeln an. Eine eigene Regel mit gleicher ID ersetzt
+    die mitgelieferte (so lassen sich Standardregeln abschalten)."""
+    user_ids = {r.id for r in user.rules}
+    ruleset.rules = [r for r in ruleset.rules if r.id not in user_ids] + list(user.rules)
+    ruleset.wordlists = list(ruleset.wordlists) + list(user.wordlists)
+    ruleset.allowlist = list(ruleset.allowlist) + list(user.allowlist)
+    ruleset.errors = list(ruleset.errors) + list(user.errors)
+    return ruleset

@@ -1,0 +1,6 @@
+Notiz zum Kunden Fakefirma GmbH (Projekt Phoenix), Ansprechpartnerin Erika Musterfrau.
+Das Passwort ist hunter2, bitte nicht weitergeben.
+password: hunter2
+Zahlung per Karte 4111 1111 1111 1111 oder IBAN DE89370400440532013000.
+Unbekannter Schlüssel ohne Kontext: rrZI4cJcXKo3QoOWnm4TOBvkVzExrmh24fWlY9g4
+Gleicher Wert URL-codiert: https://example.com/?q=Fake-Pa55w0rd%21 und groß: FAKE-PA55W0RD!

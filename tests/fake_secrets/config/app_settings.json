@@ -1,0 +1,15 @@
+{
+  "database": {
+    "host": "db01.intra.fake-firma.local",
+    "user": "app_svc",
+    "password": "Fake-Pa55w0rd!",
+    "password_file": "/run/secrets/db",
+    "timeout": 30
+  },
+  "api_key": "AIzasCmM1UVOhoRJ6Qh0qj7usgZoRNaejZc9tyj",
+  "token_expires_in": 3600,
+  "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlLXVzZXIiLCJleHAiOjk5OTk5fQ.YTuwpw6AqX2lLNp53rp-4W8xxMUumK74Low_KSkUvNy",
+  "contact": "erika.musterfrau@fake-firma.de",
+  "slack_webhook_token": "xoxb-476382033663-N6gJBf4BGDRsXTOfKWfCz7E7",
+  "gitlab": "glpat-GFkLudNRWrc7reJSMvYU"
+}

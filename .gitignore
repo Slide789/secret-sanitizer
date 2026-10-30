@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+tests/_tmp/
+build/
+dist/
+*.spec.bak
+.venv/
+.venv-build/
+
+# Ausgabe von Testläufen (z. B. tests/fake_secrets/config_sanitized/)
+*_sanitized/

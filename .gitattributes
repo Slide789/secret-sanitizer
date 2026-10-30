@@ -1,0 +1,6 @@
+# Testdaten byte-genau speichern: Zeilenenden (LF/CRLF) und Kodierungen
+# (UTF-16, cp1252) sind dort Absicht und werden von den Tests geprüft.
+tests/fake_secrets/** -text
+
+# cmd.exe erwartet Windows-Zeilenenden
+*.bat text eol=crlf

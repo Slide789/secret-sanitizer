@@ -1,0 +1,3 @@
+Server=sqlprod01;Database=Kunden;User Id=sa;Password=Fake-Pa55w0rd!;
+DefaultEndpointsProtocol=https;AccountName=fakestorage;AccountKey=eVx3nDJcrqmaaFpt8pJ82qpEmqCDOmTPAHUySAOM==;EndpointSuffix=core.windows.net
+redis://:UrlFakePw42@cache.fake-firma.local:6379/0
