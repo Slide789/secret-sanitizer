@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import re
+from dataclasses import dataclass, field
 from urllib.parse import quote, quote_plus, unquote
 
 from .models import Finding, Replacement, SanitizeResult
@@ -41,12 +42,28 @@ def value_variants(value: str) -> set[str]:
     return {v for v in variants if v}
 
 
+@dataclass
+class RestoreResult:
+    """Ergebnis der Rückübersetzung. spans: (start, end, Kategorie) der
+    eingesetzten Originalwerte im Ergebnistext (für die farbige Anzeige)."""
+
+    text: str
+    spans: list = field(default_factory=list)
+    unknown: list = field(default_factory=list)
+
+    def __repr__(self) -> str:  # bewusst ohne Werte
+        return f"RestoreResult({len(self.spans)} ersetzt, {len(self.unknown)} unbekannt)"
+
+
 class PlaceholderMapping:
     """Wert -> Platzhalter, mit Zähler je Kategorie."""
 
     def __init__(self, style: str = "[{CATEGORY}_{N}]") -> None:
         self.style = style
         self._by_key: dict[str, tuple[str, str]] = {}   # key -> (Platzhalter, Kategorie)
+        # Platzhalter -> (Originalwert in der zuerst gesehenen Schreibweise, Kategorie),
+        # für die Rückübersetzung von KI-Antworten (restore)
+        self._originals: dict[str, tuple[str, str]] = {}
         self._counters: dict[str, int] = {}
         self._matchers: list | None = None
         self._dirty = False
@@ -59,6 +76,7 @@ class PlaceholderMapping:
 
     def clear(self) -> None:
         self._by_key.clear()
+        self._originals.clear()
         self._counters.clear()
         self._matchers = None
 
@@ -77,6 +95,7 @@ class PlaceholderMapping:
         number = self._counters.get(category, 0) + 1
         self._counters[category] = number
         placeholder = self._format(category, number)
+        self._originals[placeholder] = (value, category)
         for variant in value_variants(value):
             self._by_key.setdefault(value_key(variant), (placeholder, category))
         self._dirty = True
@@ -84,6 +103,32 @@ class PlaceholderMapping:
 
     def placeholders(self) -> list[str]:
         return sorted({p for p, _ in self._by_key.values()})
+
+    def restore(self, text: str) -> RestoreResult:
+        """Rückübersetzung: ersetzt bekannte Platzhalter (z. B. in einer
+        KI-Antwort) wieder durch die Originalwerte. Platzhalter im
+        Standardformat, die diese Sitzung nicht vergeben hat, werden gezählt."""
+        result = RestoreResult(text)
+        if not text:
+            return result
+        known = sorted(self._originals, key=len, reverse=True)
+        out: list[str] = []
+        pos = 0
+        out_len = 0
+        if known:
+            pattern = re.compile("|".join(re.escape(p) for p in known))
+            for m in pattern.finditer(text):
+                value, category = self._originals[m.group()]
+                out.append(text[pos:m.start()])
+                out_len += m.start() - pos
+                out.append(value)
+                result.spans.append((out_len, out_len + len(value), category))
+                out_len += len(value)
+                pos = m.end()
+        out.append(text[pos:])
+        result.text = "".join(out)
+        result.unknown = sorted({m.group() for m in PLACEHOLDER_RE.finditer(text) if m.group() not in self._originals})
+        return result
 
     # ------------------------------------------------------------------
     def _build_matchers(self) -> list:

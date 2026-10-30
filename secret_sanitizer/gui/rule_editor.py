@@ -310,11 +310,21 @@ class RuleEditor(ctk.CTkFrame):
         self.user_rules.allowlist = entries
         return True
 
+    def add_allow_entry(self, value: str) -> bool:
+        """Übernimmt einen Wert (exakt) in die Allowlist und speichert alle Regeln.
+        Rückgabe False, wenn das Speichern scheiterte."""
+        lines = [line.strip() for line in self.allow_box.get("1.0", "end").splitlines() if line.strip()]
+        if value.casefold() not in (line.casefold() for line in lines):
+            lines.append(value)
+        self.allow_box.delete("1.0", "end")
+        self.allow_box.insert("1.0", "\n".join(lines))
+        return self.save()
+
     # ------------------------------------------------------------------
-    def save(self) -> None:
+    def save(self) -> bool:
         self._store_wordlist()
         if not self._store_allowlist():
-            return
+            return False
         # Leere Wortlisten nicht mitspeichern
         self.user_rules.wordlists = [w for w in self.user_rules.wordlists if w.words]
         for wl in self.user_rules.wordlists:
@@ -324,6 +334,7 @@ class RuleEditor(ctk.CTkFrame):
         except OSError as exc:
             messagebox.showerror("Speichern fehlgeschlagen", f"Regeln konnten nicht gespeichert werden "
                                                               f"({type(exc).__name__}).", parent=self)
-            return
+            return False
         self.status.configure(text=f"Gespeichert: {path}")
+        return True
 

@@ -259,6 +259,25 @@ class PipelineTests(unittest.TestCase):
         once = s.sanitize("host 10.1.2.3 mail a.b@fake-firma.de").text
         self.assertEqual(make_sanitizer().sanitize(once).text, once)
 
+    def test_restore_ai_answer(self):
+        s = make_sanitizer()
+        s.sanitize("Server SqlBox7.corp.local, password=Geheim99 und 10.1.2.3")
+        answer = "Verbinde dich mit [HOSTNAME_1] auf [IP_1] ([PASSWORD_1]); [IP_9] kenne ich nicht."
+        res = s.mapping.restore(answer)
+        self.assertEqual(res.text, "Verbinde dich mit SqlBox7.corp.local auf 10.1.2.3 (Geheim99); [IP_9] kenne ich nicht.")
+        self.assertEqual(res.unknown, ["[IP_9]"])
+        self.assertEqual([res.text[a:b] for a, b, _ in res.spans], ["SqlBox7.corp.local", "10.1.2.3", "Geheim99"])
+        self.assertEqual([c for _, _, c in res.spans], ["HOSTNAME", "IP", "PASSWORD"])
+        self.assertNotIn("Geheim99", repr(res))
+
+    def test_restore_does_not_confuse_prefixes(self):
+        m = PlaceholderMapping()
+        for i in range(1, 12):
+            m.placeholder_for(f"wert{i:02d}", "IP")
+        self.assertEqual(m.restore("[IP_1] [IP_11]").text, "wert01 wert11")
+        m.clear()
+        self.assertEqual(m.restore("[IP_1]").text, "[IP_1]")
+
 
 if __name__ == "__main__":
     unittest.main()

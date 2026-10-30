@@ -49,7 +49,9 @@ class App(ctk.CTk):
         self.ruleset = None
         self._rebuild_ruleset()
 
-        self.excluded: dict[str, dict] = {}        # Platzhalter-Gruppe -> {keys, category, value}
+        # Ausnahmen ("doch nicht ersetzen"): eigener Schlüssel je Wert, nicht der
+        # Platzhalter, denn [IP_1] bezeichnet nach neuem Text einen anderen Wert
+        self.excluded: dict[str, dict] = {}        # "ex:<wert-schlüssel>" -> {keys, category, value}
         self.excluded_keys: set[str] = set()
         self.result = None
         self.result_text_original = ""
@@ -59,12 +61,17 @@ class App(ctk.CTk):
         self._worker: threading.Thread | None = None
         self._queue: queue.Queue = queue.Queue()
         self._cancel = threading.Event()
+        # Sitzungen (mit Mapping) der letzten Vorschau und des letzten Ordnerlaufs,
+        # nur im Arbeitsspeicher, für die Rückübersetzung von KI-Antworten
+        self._text_sanitizer: Sanitizer | None = None
+        self._run_sanitizer: Sanitizer | None = None
 
         self._build_top()
         self.tabs = ctk.CTkTabview(self)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._build_text_tab(self.tabs.add("Text & Vorschau"))
         self._build_files_tab(self.tabs.add("Dateien & Ordner"))
+        self._build_restore_tab(self.tabs.add("Antwort zurückübersetzen"))
         self._build_rules_tab(self.tabs.add("Regeln"))
         self._build_settings_tab(self.tabs.add("Einstellungen"))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -198,6 +205,9 @@ class App(ctk.CTk):
         self.toggle_btn = ctk.CTkButton(info, text="Doch nicht ersetzen", width=170, command=self.toggle_selected,
                                         state="disabled")
         self.toggle_btn.pack(side="right")
+        self.allow_btn = ctk.CTkButton(info, text="Immer ignorieren", width=150, fg_color="gray40",
+                                       hover_color="gray30", command=self.always_ignore_selected, state="disabled")
+        self.allow_btn.pack(side="right", padx=(0, 8))
         ctk.CTkLabel(info, text="Doppelklick auf einen Treffer schaltet um", text_color="gray").pack(side="right", padx=10)
 
         self.table = FindingTable(tab, on_select=self._row_selected, on_toggle=self.toggle_exclude)
@@ -225,6 +235,7 @@ class App(ctk.CTk):
         text = self.original_box.get_text()
         if not text:
             self.result = None
+            self._text_sanitizer = None
             self.clean_box.set_text("")
             self.table.set_rows([])
             self.summary_label.configure(text="")
@@ -238,6 +249,7 @@ class App(ctk.CTk):
             self.result = sanitizer.sanitize(text, exclude=self.excluded_keys)
         finally:
             self.config(cursor="")
+        self._text_sanitizer = sanitizer
         self.result_text_original = text
         large = len(text) > self.settings.max_preview_chars
         if large:
@@ -293,10 +305,12 @@ class App(ctk.CTk):
         self.summary_label.configure(text=f"{total} Ersetzungen, {len(groups)} verschiedene Werte, "
                                           f"{len(self.excluded)} ausgenommen")
         self.toggle_btn.configure(state="disabled")
+        self.allow_btn.configure(state="disabled")
 
     def _row_selected(self, key: str) -> None:
         self.toggle_btn.configure(state="normal",
                                   text="Wieder ersetzen" if key in self.excluded else "Doch nicht ersetzen")
+        self.allow_btn.configure(state="normal")
         group = self._groups.get(key)
         if group and len(self.result_text_original) <= self.settings.max_preview_chars:
             self.original_box.mark(group["spans"])
@@ -317,9 +331,35 @@ class App(ctk.CTk):
             group = self._groups.get(key)
             if not group:
                 return
-            self.excluded[key] = {"keys": set(group["keys"]), "category": group["category"], "value": group["value"]}
+            ex_key = "ex:" + min(group["keys"])
+            self.excluded[ex_key] = {"keys": set(group["keys"]), "category": group["category"],
+                                    "value": group["value"]}
             self.excluded_keys |= group["keys"]
         self.run_preview()
+
+    def always_ignore_selected(self) -> None:
+        """'Immer ignorieren': Wert dauerhaft in die Allowlist übernehmen."""
+        key = self.table.selected_key()
+        if key is None:
+            return
+        info = self._groups.get(key) or self.excluded.get(key)
+        if not info:
+            return
+        value = info["value"].strip()
+        if not value or "\n" in value:
+            messagebox.showerror("Immer ignorieren", "Mehrzeilige Werte können nicht in die Allowlist übernommen "
+                                                     "werden.", parent=self)
+            return
+        if not messagebox.askyesno(
+                "Immer ignorieren",
+                f"Diesen Wert ({len(value)} Zeichen) künftig nie mehr ersetzen?\n\n"
+                "Er wird im Klartext in die Allowlist (user_rules.json) gespeichert. Nur für Werte verwenden, "
+                "die wirklich kein Geheimnis sind.", parent=self):
+            return
+        if key in self.excluded:
+            self.excluded_keys -= self.excluded.pop(key)["keys"]
+        if self.rule_editor.add_allow_entry(value):
+            self._toast("In die Allowlist übernommen (Reiter \"Regeln\").")
 
     def copy_result(self) -> None:
         if not self.result:
@@ -493,6 +533,7 @@ class App(ctk.CTk):
         output = self.output_var.get().strip() or None
         clean = self.clean_var.get()
         sanitizer = self._new_sanitizer()
+        self._run_sanitizer = sanitizer
 
         def confirm_large(rel: str, size_mb: float) -> bool:
             if confirmed_large:
@@ -572,6 +613,86 @@ class App(ctk.CTk):
                 subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path])
         except OSError as exc:
             messagebox.showerror("Ordner öffnen", f"Ordner kann nicht geöffnet werden ({type(exc).__name__}).", parent=self)
+
+    # ------------------------------------------------------------------
+    # Tab: Antwort zurückübersetzen
+    # ------------------------------------------------------------------
+    RESTORE_SOURCES = ("Text & Vorschau", "Letzter Ordnerlauf")
+
+    def _build_restore_tab(self, tab) -> None:
+        tab.grid_columnconfigure((0, 1), weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+        ctk.CTkLabel(tab, text="Die KI antwortet mit Platzhaltern wie [HOSTNAME_1]? Antwort links einfügen: rechts "
+                               "stehen wieder die echten Werte. Das funktioniert nur, solange das Programm offen ist "
+                               "(die Zuordnung wird nie gespeichert).",
+                     anchor="w", justify="left", wraplength=1200).grid(row=0, column=0, columnspan=2, sticky="w",
+                                                                       pady=(4, 6))
+        bar = ctk.CTkFrame(tab, fg_color="transparent")
+        bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        ctk.CTkLabel(bar, text="Platzhalter aus:").pack(side="left")
+        self.restore_source = tk.StringVar(value=self.RESTORE_SOURCES[0])
+        ctk.CTkSegmentedButton(bar, values=list(self.RESTORE_SOURCES), variable=self.restore_source,
+                               command=lambda _v: self.run_restore()).pack(side="left", padx=8)
+        ctk.CTkButton(bar, text="Aus Zwischenablage einfügen", width=200,
+                      command=self.paste_restore_clipboard).pack(side="left", padx=6)
+        self.restore_info = ctk.CTkLabel(bar, text="", text_color="gray")
+        self.restore_info.pack(side="left", padx=10)
+        self.restore_in = HighlightTextbox(tab, wrap="word")
+        self.restore_in.grid(row=2, column=0, sticky="nsew", padx=(0, 4))
+        self.restore_in.bind("<KeyRelease>", lambda _e: self._schedule_restore())
+        self.restore_in.bind("<<Paste>>", lambda _e: self.after(50, self.run_restore))
+        self.restore_out = HighlightTextbox(tab, readonly=True, wrap="word")
+        self.restore_out.grid(row=2, column=1, sticky="nsew", padx=(4, 0))
+        ctk.CTkButton(tab, text="Text mit Originalwerten kopieren", height=40,
+                      font=ctk.CTkFont(size=15, weight="bold"), command=self.copy_restored
+                      ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ctk.CTkLabel(tab, text="⚠  Der rechte Text enthält wieder echte Passwörter usw. – nicht an die KI zurückschicken.",
+                     text_color="#e67e22", anchor="w").grid(row=4, column=0, columnspan=2, sticky="w")
+        self._restore_job = None
+
+    def _schedule_restore(self) -> None:
+        if self._restore_job is not None:
+            self.after_cancel(self._restore_job)
+        self._restore_job = self.after(300, self.run_restore)
+
+    def _restore_sanitizer(self) -> Sanitizer | None:
+        if self.restore_source.get() == self.RESTORE_SOURCES[1]:
+            return self._run_sanitizer
+        return self._text_sanitizer
+
+    def run_restore(self) -> None:
+        self._restore_job = None
+        text = self.restore_in.get_text()
+        sanitizer = self._restore_sanitizer()
+        if sanitizer is None or not len(sanitizer.mapping):
+            self.restore_out.set_text(text)
+            if self.restore_source.get() == self.RESTORE_SOURCES[0]:
+                hint = "Im Reiter \"Text & Vorschau\" wurde noch nichts bereinigt."
+            else:
+                hint = "Es wurde noch kein Ordnerlauf gemacht."
+            self.restore_info.configure(text=hint, text_color="#e67e22")
+            return
+        result = sanitizer.mapping.restore(text)
+        self.restore_out.set_text(result.text)
+        self.restore_out.highlight(result.spans)
+        info = f"{len(result.spans)} Platzhalter zurückübersetzt"
+        if result.unknown:
+            info += f", unbekannt: {', '.join(result.unknown[:5])}" + (" …" if len(result.unknown) > 5 else "")
+        self.restore_info.configure(text=info, text_color="#e67e22" if result.unknown else "gray")
+
+    def paste_restore_clipboard(self) -> None:
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            self._toast("Zwischenablage ist leer oder enthält keinen Text.", error=True)
+            return
+        self.restore_in.set_text(text.replace("\r\n", "\n"))
+        self.run_restore()
+
+    def copy_restored(self) -> None:
+        self.run_restore()
+        self.clipboard_clear()
+        self.clipboard_append(self.restore_out.get_text())
 
     # ------------------------------------------------------------------
     # Tab: Regeln
@@ -712,6 +833,10 @@ class App(ctk.CTk):
         self._cancel.set()
         # Mapping und Ergebnis aus dem Speicher entfernen
         self.result = None
+        for sanitizer in (self._text_sanitizer, self._run_sanitizer):
+            if sanitizer is not None:
+                sanitizer.reset()
+        self._text_sanitizer = self._run_sanitizer = None
         self._groups.clear()
         self.excluded.clear()
         self.excluded_keys.clear()

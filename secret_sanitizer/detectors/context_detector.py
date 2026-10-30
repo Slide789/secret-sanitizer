@@ -30,6 +30,7 @@ _BLOCK_INDICATOR_RE = re.compile(r"[|>][-+1-9]{0,2}")
 # Weiteres Wort einer Passphrase in derselben Zeile
 _PHRASE_WORD_RE = re.compile(r"[ \t]+([^\s;&<>]+)")
 MAX_PHRASE_CHARS = 200
+PHRASE_PENALTY = 0.01
 QUOTE_CHARS = "\"'`"
 # <password>wert</password>
 _XML_RE = re.compile(r"<(?P<key>[A-Za-z_][\w:.\-]{0,63})(?:\s[^<>]*)?>(?P<value>[^<\n]{1,500})</(?P=key)>")
@@ -200,18 +201,21 @@ class ContextDetector:
             category = "TOKEN" if category in ("TOKEN", "SECRET", "API_KEY") else category
         if not plausible_value(text[start:end], category, quoted):
             return None
-        findings.append(Finding(start, end, category, confidence, self.name, "kv"))
+        phrase_end = end
         if phrase and not quoted and category == "PASSWORD":
-            # Zusätzlich die ganze Passphrase. Überlappt sie einen sichereren
-            # Treffer (z. B. eine E-Mail dahinter), verliert sie, und der
-            # Grundtreffer oben ersetzt wenigstens das erste Wort.
             phrase_end = extend_phrase(text, end)
             while phrase_end > end and text[phrase_end - 1] in _TRAILING:
                 phrase_end -= 1
-            if phrase_end > end:
-                findings.append(Finding(start, phrase_end, category, confidence, self.name, "kv_phrase"))
-                end = phrase_end
-        return end
+        if phrase_end == end:
+            findings.append(Finding(start, end, category, confidence, self.name, "kv"))
+            return end
+        # Passphrase mit Leerzeichen: zwei Treffer. Die ganze Phrase gewinnt,
+        # wenn nichts anderes in ihr liegt. Liegt dahinter ein eigener Treffer
+        # gleicher Sicherheit (IP, E-Mail ...), verliert sie knapp, und der
+        # Grundtreffer ersetzt das erste Wort; der Rest bleibt eigenständig erkannt.
+        findings.append(Finding(start, phrase_end, category, confidence - PHRASE_PENALTY, self.name, "kv_phrase"))
+        findings.append(Finding(start, end, category, confidence - 2 * PHRASE_PENALTY, self.name, "kv"))
+        return phrase_end
 
     def _emit_yaml_blocks(self, text, findings) -> None:
         for m in _YAML_BLOCK_RE.finditer(text):

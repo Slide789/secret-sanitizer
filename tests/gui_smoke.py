@@ -129,6 +129,36 @@ def main() -> int:
     pump(app, 1.0)
     assert app.clean_box.get_text() == "[CUSTOM_1] bei [COMPANY_1] von 203.0.113.77", app.clean_box.get_text()
 
+    # 5b) KI-Antwort zurückübersetzen (Text-Sitzung und letzter Ordnerlauf)
+    app._set_original("Server 10.20.30.40 password=Geheim99x", None)
+    pump(app, 1.0)
+    app.tabs.set("Antwort zurückübersetzen")
+    app.restore_in.set_text("Prüfe [IP_1] mit [PASSWORD_1] und [IP_7]")
+    app.run_restore()
+    pump(app, 0.3)
+    restored = app.restore_out.get_text()
+    assert restored == "Prüfe 10.20.30.40 mit Geheim99x und [IP_7]", restored
+    assert "unbekannt" in app.restore_info.cget("text"), app.restore_info.cget("text")
+    screenshot(app, "4b_rueckuebersetzung")
+    app.restore_source.set(app.RESTORE_SOURCES[1])
+    app.restore_in.set_text("[USERNAME_1]")
+    app.run_restore()
+    assert app.restore_out.get_text() != "[USERNAME_1]", "Ordnerlauf-Sitzung fehlt"
+    app.restore_source.set(app.RESTORE_SOURCES[0])
+
+    # 5c) "Immer ignorieren" übernimmt den Wert in die Allowlist
+    from secret_sanitizer.gui import app as app_module
+    app_module.messagebox.askyesno = lambda *a, **k: True
+    app.tabs.set("Text & Vorschau")
+    ip_row = next(r for r in app.table.tree.get_children() if app.table._keys[r].startswith("[IP_"))
+    app.table.tree.selection_set(ip_row)
+    pump(app, 0.3)
+    app.always_ignore_selected()
+    pump(app, 1.0)
+    assert "10.20.30.40" in app.clean_box.get_text(), app.clean_box.get_text()
+    assert "10.20.30.40" in config.user_rules_path().read_text(encoding="utf-8")
+    assert "Geheim99x" not in app.clean_box.get_text()
+
     # 6) Einstellungen speichern
     app.tabs.set("Einstellungen")
     app.setting_vars["max_preview_chars"].set("50")
