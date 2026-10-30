@@ -48,6 +48,19 @@ class CliTests(SecretAssertions, TempDirTestCase):
         self.assertTrue((out / "linux" / "auth.log").exists())
         self.assertNoSecrets((out / "linux" / "env_export.sh").read_text(encoding="utf-8"))
 
+    def test_exclude_options(self):
+        src = self.tmp / "daten"
+        copy_fake_data(src)
+        (src / "node_modules").mkdir()
+        (src / "node_modules" / "a.js").write_text("x\n", encoding="utf-8")
+        self.cli(str(src), "-q", "--exclude", "windows")
+        out = self.tmp / "daten_sanitized"
+        self.assertFalse((out / "node_modules").exists())   # Standardmuster
+        self.assertFalse((out / "windows").exists())        # --exclude
+        self.assertTrue((out / "linux").exists())
+        self.cli(str(src), "-q", "--no-exclude", "-o", str(self.tmp / "alles"))
+        self.assertTrue((self.tmp / "alles" / "node_modules" / "a.js").exists())
+
     def test_folder_run_output_has_no_secrets(self):
         src = self.tmp / "daten"
         copy_fake_data(src)

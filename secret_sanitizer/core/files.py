@@ -21,6 +21,7 @@ Sicherheit:
 from __future__ import annotations
 
 import datetime as _dt
+import fnmatch
 import json
 import os
 import tempfile
@@ -66,6 +67,8 @@ class Report:
     mode: str = ""
     entries: list = field(default_factory=list)
     aborted: str = ""
+    # Per Ausschlussmuster übersprungene Ordner ("name/") und Dateien
+    excluded: list = field(default_factory=list)
     # Stichproben bereinigter Zeilen, nur für die Anzeige (nicht im Berichts-File)
     samples: list = field(default_factory=list)
 
@@ -90,6 +93,8 @@ class Report:
             f"Übersprungen: {len(self.by_status('skipped'))}   "
             f"Fehlgeschlagen: {len(self.by_status('failed'))}",
         ]
+        if self.excluded:
+            lines.append(f"Ausgeschlossen (Ausschlussmuster): {len(self.excluded)}")
         if self.aborted:
             lines.append(f"ABGEBROCHEN: {self.aborted}")
         totals = self.totals()
@@ -103,6 +108,8 @@ class Report:
             for e in entries:
                 detail = e.reason or (", ".join(f"{k}={v}" for k, v in sorted(e.counts.items())) or "keine Treffer")
                 lines.append(f"{e.rel_path}  [{e.encoding or '-'}]  {detail}")
+        if self.excluded:
+            lines += ["", "--- ausgeschlossen (Ausschlussmuster) ---"] + list(self.excluded)
         lines += ["", "Hinweis: Das Ergebnis vor dem Senden selbst prüfen. Die Erkennung senkt das Risiko,",
                   "bietet aber keine 100-%-Garantie."]
         return "\n".join(lines) + "\n"
@@ -110,7 +117,7 @@ class Report:
     def to_dict(self) -> dict:
         return {
             "input": self.input_name, "mode": self.mode, "started": self.started, "finished": self.finished,
-            "aborted": self.aborted, "totals": self.totals(),
+            "aborted": self.aborted, "totals": self.totals(), "excluded": list(self.excluded),
             "files": [{"path": e.rel_path, "status": e.status, "reason": e.reason, "encoding": e.encoding,
                        "size_bytes": e.size_bytes, "counts": e.counts} for e in self.entries],
         }
@@ -171,24 +178,48 @@ def _is_within(path: Path, folder: Path) -> bool:
         return False
 
 
-def collect_files(input_path: Path, out_root: Path) -> list[tuple[Path, str]]:
-    """(Quelldatei, relativer Pfad) für eine Datei oder alle Dateien eines Ordners."""
+def is_excluded(rel_path: str, patterns) -> bool:
+    """True, wenn Name oder relativer Pfad auf ein Ausschlussmuster passt
+    (fnmatch, ohne Groß-/Kleinschreibung)."""
+    rel = rel_path.lower()
+    name = rel.rsplit("/", 1)[-1]
+    return any(fnmatch.fnmatchcase(name, p) or fnmatch.fnmatchcase(rel, p) for p in (p.lower() for p in patterns))
+
+
+def collect_files(input_path: Path, out_root: Path, exclude=(), skipped: list | None = None) -> list[tuple[Path, str]]:
+    """(Quelldatei, relativer Pfad) für eine Datei oder alle Dateien eines Ordners.
+    exclude: Ausschlussmuster (gelten nur für Ordnerläufe; eine einzeln gewählte
+    Datei wird immer verarbeitet). Übersprungene relative Pfade landen in skipped."""
     input_path = Path(input_path).resolve()
     if input_path.is_file():
         return [(input_path, input_path.name)]
     if not input_path.is_dir():
         raise RunError("Eingabe nicht gefunden.")
+    skipped = skipped if skipped is not None else []
     result = []
     for dirpath, dirnames, filenames in os.walk(input_path, followlinks=False):
         current = Path(dirpath)
-        # Ausgabeordner (falls innerhalb der Eingabe) nicht erneut verarbeiten
-        dirnames[:] = sorted(d for d in dirnames
-                             if not _is_within((current / d).resolve(), out_root) and not (current / d).is_symlink())
+        kept_dirs = []
+        for d in sorted(dirnames):
+            path = current / d
+            # Ausgabeordner (falls innerhalb der Eingabe) nicht erneut verarbeiten
+            if _is_within(path.resolve(), out_root) or path.is_symlink():
+                continue
+            rel = path.relative_to(input_path).as_posix()
+            if exclude and is_excluded(rel, exclude):
+                skipped.append(rel + "/")
+                continue
+            kept_dirs.append(d)
+        dirnames[:] = kept_dirs
         for name in sorted(filenames):
             path = current / name
             if path.is_symlink() or not path.is_file():
                 continue
-            result.append((path, path.relative_to(input_path).as_posix()))
+            rel = path.relative_to(input_path).as_posix()
+            if exclude and is_excluded(rel, exclude):
+                skipped.append(rel)
+                continue
+            result.append((path, rel))
     return result
 
 
@@ -271,7 +302,7 @@ class FileRun:
         out_root = resolve_output_dir(input_path, self.settings, output_dir)
         report = Report(input_name=input_path.resolve().name or str(input_path), started=_now(),
                         mode=self.settings.mode)
-        files = collect_files(input_path, out_root)
+        files = collect_files(input_path, out_root, self.settings.exclude_patterns, report.excluded)
         if len(files) > self.settings.max_files_per_run:
             raise RunError(f"Zu viele Dateien ({len(files)}), Limit max_files_per_run = "
                            f"{self.settings.max_files_per_run}.")

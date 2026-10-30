@@ -54,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-user-rules", action="store_true", help="Nur mitgelieferte Regeln verwenden.")
     p.add_argument("--output-encoding", metavar="KODIERUNG",
                    help="Kodierung der Ausgabedateien (Standard utf-8, 'same' = wie Eingabe).")
+    p.add_argument("--exclude", metavar="MUSTER", action="append", default=[],
+                   help="Ordner/Dateien im Ordnerlauf überspringen, z. B. --exclude \"*.bak\" (mehrfach möglich, "
+                        "zusätzlich zu den Standardmustern wie .git, node_modules).")
+    p.add_argument("--no-exclude", action="store_true",
+                   help="Keine Ausschlussmuster verwenden (auch nicht die Standardmuster).")
     p.add_argument("-y", "--yes", action="store_true",
                    help="Große Dateien ohne Rückfrage verarbeiten.")
     p.add_argument("--no-report", action="store_true", help="Keine Berichtsdatei in den Ausgabeordner schreiben.")
@@ -94,6 +99,9 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         except LookupError:
             parser.error("Unbekannte Kodierung für --output-encoding")
         settings.output_encoding = args.output_encoding
+    if args.no_exclude:
+        settings.exclude_patterns = []
+    settings.exclude_patterns = settings.exclude_patterns + [p for p in args.exclude if p.strip()]
     cats = dict(settings.enabled_categories)
     if args.no_personal:
         for c in PERSONAL_CATEGORIES:

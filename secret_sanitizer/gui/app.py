@@ -594,12 +594,13 @@ class App(ctk.CTk):
             ("chunk_size", "Blockgröße (Zeichen) für große Dateien"),
             ("chunk_overlap", "Überlappung der Blöcke (Zeichen)"),
             ("placeholder_style", "Platzhalterstil (muss {CATEGORY} und {N} enthalten)"),
+            ("exclude_patterns", "Ausschlussmuster für Ordner, durch Komma getrennt (z. B. .git, *.bak)"),
         ]
         row = 0
         ctk.CTkLabel(scroll, text="Allgemein", font=ctk.CTkFont(size=15, weight="bold")).grid(row=row, column=0, sticky="w", pady=(4, 6))
         row += 1
         for key, label in fields:
-            var = tk.StringVar(value=str(getattr(self.settings, key)))
+            var = tk.StringVar(value=_form_value(getattr(self.settings, key)))
             self.setting_vars[key] = var
             ctk.CTkLabel(scroll, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
             ctk.CTkEntry(scroll, textvariable=var, width=420).grid(row=row, column=1, sticky="w", pady=3)
@@ -652,6 +653,9 @@ class App(ctk.CTk):
             if parts[0] in ("output_dir", "output_encoding", "placeholder_style"):
                 data[parts[0]] = raw
                 continue
+            if parts[0] == "exclude_patterns":
+                data[parts[0]] = [x.strip() for x in raw.split(",") if x.strip()]
+                continue
             try:
                 value = float(raw) if "." in raw or parts[0] in ("entropy_thresholds", "mode_thresholds",
                                                                  "max_file_size_mb") else int(raw)
@@ -698,7 +702,7 @@ class App(ctk.CTk):
             value = data
             for part in key.split("."):
                 value = value.get(part, "") if isinstance(value, dict) else ""
-            var.set(str(value))
+            var.set(_form_value(value))
 
     # ------------------------------------------------------------------
     def _on_close(self) -> None:
@@ -709,6 +713,11 @@ class App(ctk.CTk):
         self.excluded.clear()
         self.excluded_keys.clear()
         self.destroy()
+
+
+def _form_value(value) -> str:
+    """Wert für ein Eingabefeld der Einstellungen (Listen kommagetrennt)."""
+    return ", ".join(value) if isinstance(value, list) else str(value)
 
 
 def _placeholder_number(placeholder: str) -> int:

@@ -42,6 +42,11 @@ DEFAULT_ENTROPY_MIN_LENGTH = {"strict": 16, "normal": 20, "loose": 24}
 
 DEFAULT_PLACEHOLDER_STYLE = "[{CATEGORY}_{N}]"
 
+# Ordner und Dateien, die bei Ordnerläufen übersprungen werden (fnmatch-Muster,
+# verglichen mit dem Namen und mit dem relativen Pfad, ohne Groß/klein).
+DEFAULT_EXCLUDE_PATTERNS = [".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv",
+                            ".idea", ".vs", "*_sanitized"]
+
 
 @dataclass
 class Settings:
@@ -62,6 +67,7 @@ class Settings:
     entropy_min_length: dict = field(default_factory=lambda: dict(DEFAULT_ENTROPY_MIN_LENGTH))
     mode_thresholds: dict = field(default_factory=lambda: dict(DEFAULT_MODE_THRESHOLDS))
     placeholder_style: str = DEFAULT_PLACEHOLDER_STYLE
+    exclude_patterns: list = field(default_factory=lambda: list(DEFAULT_EXCLUDE_PATTERNS))
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:
@@ -110,6 +116,7 @@ class Settings:
         self.max_preview_chars = int(self.max_preview_chars)
         self.chunk_size = max(10_000, int(self.chunk_size))
         self.chunk_overlap = max(1_000, min(int(self.chunk_overlap), self.chunk_size // 2))
+        self.exclude_patterns = [str(p).strip() for p in self.exclude_patterns if str(p).strip()]
         try:
             "".encode(self.output_encoding)
         except (LookupError, TypeError):
