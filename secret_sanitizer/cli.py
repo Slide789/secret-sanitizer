@@ -26,6 +26,7 @@ from .config import default_rules_path
 EXIT_OK = 0
 EXIT_FILE_ERRORS = 1
 EXIT_USAGE = 2
+EXIT_FOUND = 3   # --check: mindestens ein Treffer
 
 HINWEIS = ("Hinweis: Ergebnis vor dem Senden selbst prüfen. Das Tool senkt das Risiko, "
            "bietet aber keine 100-%-Garantie. Interne Richtlinien zur KI-Nutzung beachten.")
@@ -64,6 +65,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-report", action="store_true", help="Keine Berichtsdatei in den Ausgabeordner schreiben.")
     p.add_argument("--clean", action="store_true",
                    help="Ausgabeordner vorher leeren (nur wenn er leer ist oder von einem früheren Lauf stammt).")
+    p.add_argument("--check", action="store_true",
+                   help="Nur prüfen, nichts schreiben: listet Dateien mit Treffern (ohne Werte) und endet mit "
+                        f"Exit-Code {EXIT_FOUND}, wenn etwas gefunden wurde (z. B. für Pre-commit-Hooks).")
     p.add_argument("-q", "--quiet", action="store_true", help="Weniger Ausgaben auf stderr.")
     p.add_argument("--list-categories", action="store_true", help="Kategorien anzeigen und beenden.")
     p.add_argument("--gui", action="store_true", help="GUI starten.")
@@ -130,7 +134,7 @@ def _format_counts(counts: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "keine Treffer"
 
 
-def run_stdin(sanitizer: Sanitizer, quiet: bool) -> int:
+def run_stdin(sanitizer: Sanitizer, quiet: bool, check: bool = False) -> int:
     data = sys.stdin.buffer.read()
     try:
         text, _ = decode_bytes(data)
@@ -138,6 +142,11 @@ def run_stdin(sanitizer: Sanitizer, quiet: bool) -> int:
         _err("Fehler: Eingabe ist keine Textdatei (Binärdaten).")
         return EXIT_USAGE
     result = sanitizer.sanitize(text)
+    if check:
+        counts = result.counts_by_category()
+        if counts and not quiet:
+            print(f"-: {_format_counts(counts)}")
+        return EXIT_FOUND if counts else EXIT_OK
     sys.stdout.buffer.write(result.text.encode("utf-8"))
     sys.stdout.buffer.flush()
     if not quiet:
@@ -157,10 +166,11 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
         return answer.strip().lower() in ("j", "ja", "y", "yes")
 
     def progress(done: int, total: int, rel: str) -> None:
-        if not args.quiet and rel:
+        if not args.quiet and not args.check and rel:
             _err(f"[{done * 100 // max(total, 1):3d} %] {rel}")
 
     exit_code = EXIT_OK
+    found = 0
     inputs = [Path(p) for p in args.inputs]
     for path in inputs:
         if not path.exists():
@@ -172,17 +182,33 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
             output = str(Path(output) / (path.resolve().name or "eingabe"))
         try:
             report, out_root = FileRun(sanitizer, confirm_large=confirm_large, progress=progress).run(
-                path, output_dir=output, write_report=not args.no_report, clean_output=args.clean)
+                path, output_dir=output, write_report=not args.no_report, clean_output=args.clean,
+                dry_run=args.check)
         except RunError as exc:
             _err(f"Fehler: {exc}")
             exit_code = EXIT_USAGE
             continue
-        if not args.quiet:
+        if args.check:
+            prefix = path.as_posix() if path.is_dir() else ""
+            for entry in report.entries:
+                if entry.total:
+                    found += 1
+                    if not args.quiet:
+                        name = f"{prefix}/{entry.rel_path}" if prefix else path.as_posix()
+                        print(f"{name}: {_format_counts(entry.counts)}")
+                elif entry.status == "failed" and not args.quiet:
+                    _err(f"Fehler: {entry.rel_path}: {entry.reason}")
+        elif not args.quiet:
             _err("")
             _err(report.to_text().rstrip())
             _err(f"Ausgabe: {out_root}")
         if report.by_status("failed") and exit_code == EXIT_OK:
             exit_code = EXIT_FILE_ERRORS
+    if args.check:
+        if not args.quiet:
+            _err(f"{found} Datei(en) mit Treffern." if found else "Keine Treffer.")
+        if found and exit_code == EXIT_OK:
+            exit_code = EXIT_FOUND
     return exit_code
 
 
@@ -197,7 +223,7 @@ def main(argv=None) -> int:
         return launch()
     sanitizer = make_sanitizer_from_args(args, parser)
     if args.inputs == ["-"]:
-        return run_stdin(sanitizer, args.quiet)
+        return run_stdin(sanitizer, args.quiet, args.check)
     if "-" in args.inputs:
         parser.error("'-' (stdin) kann nicht mit Dateien kombiniert werden.")
     return run_paths(sanitizer, args)

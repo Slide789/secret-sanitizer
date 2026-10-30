@@ -61,6 +61,24 @@ class CliTests(SecretAssertions, TempDirTestCase):
         self.cli(str(src), "-q", "--no-exclude", "-o", str(self.tmp / "alles"))
         self.assertTrue((self.tmp / "alles" / "node_modules" / "a.js").exists())
 
+    def test_check_mode(self):
+        src = self.tmp / "daten"
+        copy_fake_data(src)
+        res = self.cli(str(src), "--check")
+        self.assertEqual(res.returncode, 3, res.stderr)
+        out = res.stdout.decode("utf-8")
+        self.assertIn("linux/auth.log: ", out)
+        self.assertNotIn("binary/", out)
+        self.assertNoSecrets(out + res.stderr.decode("utf-8"))
+        self.assertFalse((self.tmp / "daten_sanitized").exists())   # nichts geschrieben
+        clean = self.tmp / "sauber.txt"
+        clean.write_text("Nur ein harmloser Satz.\n", encoding="utf-8")
+        res = self.cli(str(clean), "--check")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout, b"")
+        res = self.cli("-", "--check", "-q", stdin=f"password={S['db_password']}".encode())
+        self.assertEqual((res.returncode, res.stdout), (3, b""))
+
     def test_folder_run_output_has_no_secrets(self):
         src = self.tmp / "daten"
         copy_fake_data(src)

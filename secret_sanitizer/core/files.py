@@ -311,13 +311,16 @@ class FileRun:
             self.progress(done, total, rel)
 
     def run(self, input_path, output_dir=None, write_report: bool = True,
-            clean_output: bool = False) -> tuple[Report, Path]:
+            clean_output: bool = False, dry_run: bool = False) -> tuple[Report, Path]:
         """clean_output: Ausgabeordner vor dem Schreiben leeren (nur wenn er leer
-        ist oder von einem früheren Lauf stammt, siehe clear_output_dir)."""
+        ist oder von einem früheren Lauf stammt, siehe clear_output_dir).
+        dry_run: nur prüfen und zählen, nichts schreiben (auch keinen Bericht)."""
         input_path = Path(input_path)
         out_root = resolve_output_dir(input_path, self.settings, output_dir)
         report = Report(input_name=input_path.resolve().name or str(input_path), started=_now(),
                         mode=self.settings.mode)
+        if dry_run:
+            write_report = clean_output = False
         if clean_output:
             check_clearable(out_root)
         files = collect_files(input_path, out_root, self.settings.exclude_patterns, report.excluded)
@@ -370,7 +373,10 @@ class FileRun:
                     break
                 self._report_progress(total + i, total * 2, rel)
                 try:
-                    entry.counts = self._write_file(src, out_root / rel, entry.encoding, report)
+                    if dry_run:
+                        entry.counts = self._process_file(src, entry.encoding, report, None)
+                    else:
+                        entry.counts = self._write_file(src, out_root / rel, entry.encoding, report)
                     written.add(rel)
                 except _Cancelled:
                     report.aborted = "vom Benutzer abgebrochen"
@@ -383,7 +389,8 @@ class FileRun:
                 if entry.status == "processed" and rel not in written:
                     entry.status, entry.reason = "skipped", "abgebrochen"
         self._report_progress(total * 2, total * 2, "")
-        report.stale = find_stale(out_root, written)
+        if not dry_run:
+            report.stale = find_stale(out_root, written)
         report.finished = _now()
         if write_report:
             out_root.mkdir(parents=True, exist_ok=True)
@@ -413,26 +420,12 @@ class FileRun:
         s = self.settings
         if dest.resolve() == src.resolve():
             raise RunError("Ausgabe würde Original überschreiben")  # pragma: no cover (durch resolve_output_dir verhindert)
-        newline = file_newline(src, encoding)
         out_encoding = output_encoding_for(encoding, s.output_encoding)
-        counts: dict = {}
         dest.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
         try:
             with os.fdopen(fd, "w", encoding=out_encoding, newline="") as out:
-                def handler(buffer: str, cut: int) -> int:
-                    findings = self.sanitizer.analyze(buffer, self.exclude)
-                    keep = [f for f in findings if f.start < cut]
-                    cut = max([cut] + [f.end for f in keep])
-                    result = apply_replacements(buffer[:cut], keep, self.sanitizer.mapping)
-                    for rep in result.replacements:
-                        counts[rep.category] = counts.get(rep.category, 0) + 1
-                    _collect_samples(result, report)
-                    out.write(restore_newlines(result.text, newline))
-                    return cut
-
-                iter_segments(read_chunks(src, encoding, s.chunk_size), s.chunk_size, s.chunk_overlap,
-                              handler, self.cancel)
+                counts = self._process_file(src, encoding, report, out)
             os.replace(tmp, dest)
         except BaseException:
             try:
@@ -440,6 +433,28 @@ class FileRun:
             except OSError:
                 pass
             raise
+        return counts
+
+    def _process_file(self, src: Path, encoding: str, report: Report, out) -> dict:
+        """Durchlauf 2 für eine Datei: ersetzen, zählen und (wenn out gesetzt
+        ist) bereinigt schreiben. Gibt die Ersetzungen je Kategorie zurück."""
+        s = self.settings
+        newline = file_newline(src, encoding)
+        counts: dict = {}
+
+        def handler(buffer: str, cut: int) -> int:
+            findings = self.sanitizer.analyze(buffer, self.exclude)
+            keep = [f for f in findings if f.start < cut]
+            cut = max([cut] + [f.end for f in keep])
+            result = apply_replacements(buffer[:cut], keep, self.sanitizer.mapping)
+            for rep in result.replacements:
+                counts[rep.category] = counts.get(rep.category, 0) + 1
+            _collect_samples(result, report)
+            if out is not None:
+                out.write(restore_newlines(result.text, newline))
+            return cut
+
+        iter_segments(read_chunks(src, encoding, s.chunk_size), s.chunk_size, s.chunk_overlap, handler, self.cancel)
         return counts
 
 
