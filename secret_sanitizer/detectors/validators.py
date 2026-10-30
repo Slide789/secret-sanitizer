@@ -55,11 +55,18 @@ def ipv6_valid(value: str) -> bool:
         return False
 
 
+def phone_valid(value: str) -> bool:
+    """Plausible Telefonnummer: 7 bis 15 Ziffern (E.164), nicht alle gleich."""
+    digits = re.sub(r"\D", "", value)
+    return 7 <= len(digits) <= 15 and len(set(digits)) > 2
+
+
 VALIDATORS = {
     "luhn": luhn_valid,
     "iban": iban_valid,
     "ipv4": ipv4_valid,
     "ipv6": ipv6_valid,
+    "phone": phone_valid,
 }
 
 

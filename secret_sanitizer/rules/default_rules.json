@@ -150,6 +150,55 @@
       ]
     },
     {
+      "id": "huggingface_token",
+      "name": "Hugging-Face-Token",
+      "description": "Hugging Face User Access Token (hf_...).",
+      "category": "TOKEN",
+      "detector": "regex",
+      "pattern": "\\bhf_[A-Za-z0-9]{34,40}\\b",
+      "confidence": 0.95,
+      "enabled": true,
+      "hint": [
+        "hf_"
+      ]
+    },
+    {
+      "id": "pypi_token",
+      "name": "PyPI-Token",
+      "description": "PyPI API-Token (pypi-AgEIcHlwaS5vcmc...).",
+      "category": "API_KEY",
+      "detector": "regex",
+      "pattern": "\\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\\-]{50,}",
+      "confidence": 0.97,
+      "enabled": true,
+      "hint": [
+        "pypi-"
+      ]
+    },
+    {
+      "id": "discord_bot_token",
+      "name": "Discord-Bot-Token",
+      "description": "Discord-Bot-Token aus drei Teilen (Benutzer-ID, Zeitstempel, HMAC).",
+      "category": "TOKEN",
+      "detector": "regex",
+      "pattern": "(?<![\\w.\\-])[MNO][A-Za-z\\d_\\-]{23,27}\\.[\\w\\-]{6}\\.[\\w\\-]{27,38}(?![\\w.\\-])",
+      "confidence": 0.9,
+      "enabled": true
+    },
+    {
+      "id": "telegram_bot_token",
+      "name": "Telegram-Bot-Token",
+      "description": "Telegram-Bot-Token (Bot-ID:AA...).",
+      "category": "TOKEN",
+      "detector": "regex",
+      "pattern": "(?<!\\d)\\d{8,10}:AA[A-Za-z0-9_\\-]{33}(?![\\w\\-])",
+      "confidence": 0.9,
+      "enabled": true,
+      "hint": [
+        ":aa"
+      ]
+    },
+    {
       "id": "azure_account_key",
       "name": "Azure AccountKey / SharedAccessKey",
       "description": "Schlüssel in Azure-Connection-Strings.",
@@ -161,6 +210,19 @@
       "hint": [
         "accountkey",
         "sharedaccess"
+      ]
+    },
+    {
+      "id": "azure_sas_signature",
+      "name": "Azure-SAS-Signatur",
+      "description": "Signatur (sig=...) in Azure Shared Access Signatures; nur der Wert wird ersetzt.",
+      "category": "TOKEN",
+      "detector": "regex",
+      "pattern": "[?&;]sig=(?P<value>[A-Za-z0-9%+/=]{30,})",
+      "confidence": 0.9,
+      "enabled": true,
+      "hint": [
+        "sig="
       ]
     },
     {
@@ -218,10 +280,10 @@
     {
       "id": "ipv4",
       "name": "IPv4-Adresse",
-      "description": "IPv4-Adressen inkl. privater Bereiche, optional mit CIDR-Suffix.",
+      "description": "IPv4-Adressen inkl. privater Bereiche, optional mit CIDR-Suffix. Nicht nach 'Version', 'Build' usw. (Versionsnummern).",
       "category": "IP",
       "detector": "regex",
-      "pattern": "(?<![\\w.])(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:/\\d{1,2})?(?![\\w.]*\\d)",
+      "pattern": "(?<!(?i:version) )(?<!(?i:version): )(?<!(?i:version)=)(?<!(?i:ver)\\. )(?<!(?i:build) )(?<!(?i:firmware) )(?<!(?i:release) )(?<![\\w.])(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:/\\d{1,2})?(?![\\w.]*\\d)",
       "confidence": 0.85,
       "enabled": true
     },
@@ -666,6 +728,31 @@
       "confidence": 0.5,
       "enabled": true,
       "validator": "iban"
+    },
+    {
+      "id": "phone_international",
+      "name": "Telefonnummer (international)",
+      "description": "Telefonnummern mit Ländervorwahl, z. B. +49 171 2345678 oder +49 (0)30 1234567.",
+      "category": "PHONE",
+      "detector": "regex",
+      "pattern": "(?<![\\w+])\\+[1-9]\\d{0,2}[ \\-/.]?(?:\\(0\\)[ \\-]?)?\\d{2,5}(?:[ \\-/.]?\\d{2,8}){1,4}(?![\\w.\\-]*\\d)",
+      "confidence": 0.75,
+      "enabled": true,
+      "validator": "phone",
+      "hint": [
+        "+"
+      ]
+    },
+    {
+      "id": "phone_national",
+      "name": "Telefonnummer (national)",
+      "description": "Nationale Telefonnummern mit Vorwahl und Trennzeichen, z. B. 0171/2345678 oder 030 12345678.",
+      "category": "PHONE",
+      "detector": "regex",
+      "pattern": "(?<![\\w.:/\\-])0[1-9]\\d{1,4}(?: ?/ ?| |-)\\d{3,9}(?:[ \\-]\\d{1,6})?(?![\\w.:/\\-]*\\d)",
+      "confidence": 0.5,
+      "enabled": true,
+      "validator": "phone"
     },
     {
       "id": "cmd_long_password",

@@ -49,6 +49,8 @@ _CATEGORY_LIST = [
     Category("SID", "Windows-SIDs", "identity", "#229954", "Sicherheits-IDs S-1-5-21-..."),
     Category("EMAIL", "E-Mail-Adressen", "personal", "#2e86c1", "E-Mail-Adressen (personenbezogen)"),
     Category("NAME", "Personennamen", "personal", "#5dade2", "Namen aus eigenen Listen (personenbezogen)"),
+    Category("PHONE", "Telefonnummern", "personal", "#85c1e9", "Telefonnummern mit Vorwahl (personenbezogen)"),
+    Category("PHONE", "Telefonnummern", "personal", "#85c1e9", "Telefonnummern mit Vorwahl (personenbezogen)"),
     Category("CREDIT_CARD", "Kreditkarten", "finance", "#b7950b", "Kartennummern mit gültiger Luhn-Prüfsumme"),
     Category("IBAN", "IBAN", "finance", "#d4ac0d", "IBANs mit gültiger Prüfsumme"),
     Category("COMPANY", "Firmennamen", "custom", "#7f8c8d", "Firmennamen aus eigenen Listen"),

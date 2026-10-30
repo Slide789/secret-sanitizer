@@ -108,6 +108,29 @@ class RegexDetectorTests(SecretAssertions, unittest.TestCase):
         out = make_sanitizer(enabled_categories={"EMAIL": False}).sanitize(f"an {S['email']}").text
         self.assertIn(S["email"], out)
 
+    def test_more_tokens(self):
+        self.assertEqual(sanitize("hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"), "[TOKEN_1]")
+        self.assertEqual(sanitize("pypi-AgEIcHlwaS5vcmcCJDAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMAACKlszLCJ"),
+                         "[API_KEY_1]")
+        self.assertEqual(sanitize("MTIzNDU2Nzg5MDEyMzQ1Njc4.GabcDe.abcdefghijklmnopqrstuvwxyz012345"), "[TOKEN_1]")
+        self.assertEqual(sanitize("1234567890:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw0"), "[TOKEN_1]")
+        sas = "?sv=2022-11-02&ss=b&sig=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789%2Bab%3D&se=x"
+        self.assertEqual(sanitize(sas), "?sv=2022-11-02&ss=b&sig=[TOKEN_1]&se=x")
+
+    def test_phone_numbers(self):
+        out = sanitize("Tel. +49 171 2345678, +49 (0)30 1234567, 0171/2345678, 030 12345678")
+        self.assertEqual(out, "Tel. [PHONE_1], [PHONE_2], [PHONE_3], [PHONE_4]")
+        for text in ["Datum 2026-10-30", "Zeit 12:30:45", "Nummer 1234567890", "PLZ 80331", "Port 0800",
+                     "Preis 0,99", "+1 2"]:
+            self.assertEqual(sanitize(text), text)
+        self.assertIn("+49 171 2345678",
+                      make_sanitizer(enabled_categories={"PHONE": False}).sanitize("+49 171 2345678").text)
+
+    def test_version_is_not_ip(self):
+        for text in ["Version 1.2.3.4", "version: 1.2.3.4", "Build 10.0.19041.1", "ver. 2.4.6.8", "Firmware 3.1.4.1"]:
+            self.assertEqual(sanitize(text), text)
+        self.assertEqual(sanitize("Version 1.2.3.4 auf 10.1.2.3"), "Version 1.2.3.4 auf [IP_1]")
+
 
 if __name__ == "__main__":
     unittest.main()

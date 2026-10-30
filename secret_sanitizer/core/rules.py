@@ -10,7 +10,7 @@ Format einer Regel (JSON):
       "pattern": "...",                regulärer Ausdruck (Python-Syntax)
       "flags": ["IGNORECASE"],         optional: IGNORECASE, MULTILINE, DOTALL
       "confidence": 0.95,              Konfidenz 0..1
-      "validator": "luhn",             optional: luhn, iban, ipv4, ipv6
+      "validator": "luhn",             optional: luhn, iban, ipv4, ipv6, phone
       "hint": ["akia"],                optional: Regel nur prüfen, wenn mindestens
                                        einer dieser Texte vorkommt (Tempo)
       "enabled": true
@@ -30,7 +30,7 @@ from .models import CATEGORIES
 
 ALLOWED_FLAGS = {"IGNORECASE": re.IGNORECASE, "MULTILINE": re.MULTILINE, "DOTALL": re.DOTALL}
 ALLOWED_DETECTORS = ("regex", "cmdline")
-ALLOWED_VALIDATORS = ("luhn", "iban", "ipv4", "ipv6")
+ALLOWED_VALIDATORS = ("luhn", "iban", "ipv4", "ipv6", "phone")
 
 
 class RuleError(ValueError):
