@@ -71,6 +71,9 @@ class Settings:
     # Ordner- und Dateinamen in der Ausgabe ebenfalls bereinigen (und im Bericht nur
     # die bereinigten Namen zeigen)
     sanitize_filenames: bool = False
+    # Archive (.zip, .tar, .tar.gz/.tgz, .gz) entpacken, Inhalt bereinigen, wieder einpacken
+    process_archives: bool = True
+    max_archive_mb: float = 500
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:

@@ -1,9 +1,12 @@
 """Tests für Datei-/Ordnerlauf, blockweise Verarbeitung und Bericht."""
 
 import copy
+import gzip
 import hashlib
+import tarfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -232,6 +235,92 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         self.assertEqual(out, self.input.parent / "linux_sanitized" if False else default_output_dir(src))
         self.assertEqual(out, self.input / "linux_sanitized")
         self.assertTrue((out / "auth.log").exists())
+
+
+class ArchiveTests(SecretAssertions, TempDirTestCase):
+    def setUp(self):
+        super().setUp()
+        self.input = self.tmp / "eingabe"
+        self.input.mkdir()
+        self.secret_text = f"password={S['db_password']}\nhost {S['hostname']}\n"
+
+    def run_folder(self, **kwargs):
+        return FileRun(make_sanitizer(**kwargs)).run(self.input)
+
+    def test_zip_roundtrip(self):
+        with zipfile.ZipFile(self.input / "logs.zip", "w") as zf:
+            zf.writestr("app/server.log", self.secret_text)
+            zf.writestr("bild.png", b"\x89PNG\x00\x00" + S["db_password"].encode())
+            zf.writestr("../../boese.txt", "x")
+        (self.input / "lose.txt").write_text(f"auch {S['hostname']}\n", encoding="utf-8")
+        report, out = self.run_folder()
+        self.assertTrue((out / "logs.zip").is_file())
+        with zipfile.ZipFile(out / "logs.zip") as zf:
+            self.assertEqual(zf.namelist(), ["app/server.log"])
+            inner = zf.read("app/server.log").decode("utf-8")
+        self.assertNoSecrets(inner)
+        self.assertIn("[PASSWORD_1]", inner)
+        # gemeinsames Mapping mit den übrigen Dateien
+        placeholder = inner.split("host ")[1].strip()
+        self.assertIn(placeholder, (out / "lose.txt").read_text(encoding="utf-8"))
+        status = {e.rel_path: (e.status, e.reason) for e in report.entries}
+        self.assertEqual(status["logs.zip/bild.png"], ("skipped", "Binärdatei"))
+        self.assertEqual(status["logs.zip/../../boese.txt"][1], "unsicherer Pfad im Archiv")
+        self.assertFalse((self.tmp / "boese.txt").exists())
+        self.assertEqual(report.stale, [])
+        self.assertFalse((out / "logs.zip.tmp_pack").exists())
+
+    def test_gz_and_tgz(self):
+        with gzip.open(self.input / "app.log.gz", "wb") as fh:
+            fh.write(self.secret_text.encode("utf-8"))
+        tgz_src = self.tmp / "tar_inhalt.log"
+        tgz_src.write_text(self.secret_text, encoding="utf-8")
+        with tarfile.open(self.input / "paket.tar.gz", "w:gz") as tf:
+            tf.add(tgz_src, arcname="var/log/tar_inhalt.log")
+        report, out = self.run_folder()
+        with gzip.open(out / "app.log.gz", "rb") as fh:
+            self.assertNoSecrets(fh.read().decode("utf-8"))
+        with tarfile.open(out / "paket.tar.gz", "r:gz") as tf:
+            member = tf.getmember("var/log/tar_inhalt.log")
+            self.assertEqual((member.uname, member.uid), ("", 0))
+            self.assertNoSecrets(tf.extractfile(member).read().decode("utf-8"))
+        self.assertEqual(report.by_status("failed"), [])
+
+    def test_limits_and_broken_archives(self):
+        with zipfile.ZipFile(self.input / "gross.zip", "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("a.log", "0" * 300_000)
+            zf.writestr("b.log", "0" * 300_000)
+        (self.input / "kaputt.zip").write_bytes(b"PK\x03\x04 kein echtes zip")
+        report, out = self.run_folder(max_archive_mb=0.5)
+        status = {e.rel_path: (e.status, e.reason) for e in report.entries}
+        self.assertEqual(status["gross.zip"][0], "failed")
+        self.assertIn("max_archive_mb", status["gross.zip"][1])
+        self.assertEqual(status["kaputt.zip"][0], "failed")
+        self.assertFalse((out / "gross.zip").exists())
+
+    def test_staging_is_removed_and_option_off(self):
+        with zipfile.ZipFile(self.input / "logs.zip", "w") as zf:
+            zf.writestr("server.log", self.secret_text)
+        run = FileRun(make_sanitizer())
+        with mock.patch.object(files_mod.shutil, "rmtree", wraps=files_mod.shutil.rmtree) as rmtree:
+            run.run(self.input)
+        staged = [c.args[0] for c in rmtree.call_args_list if "archiv_" in str(c.args[0])]
+        self.assertTrue(staged and not any(Path(p).exists() for p in staged), staged)
+        report, _ = FileRun(make_sanitizer(process_archives=False)).run(self.input, output_dir=self.tmp / "aus")
+        self.assertEqual([(e.rel_path, e.reason) for e in report.entries], [("logs.zip", "Binärdatei")])
+
+    def test_archive_with_sanitized_filenames(self):
+        host = S["hostname"]
+        with zipfile.ZipFile(self.input / f"logs_{host}.zip", "w") as zf:
+            zf.writestr(f"{host}.log", self.secret_text)
+        sanitizer = make_sanitizer(sanitize_filenames=True)
+        report, out = FileRun(sanitizer).run(self.input)
+        placeholder = sanitizer.mapping.get(host)
+        archive = out / f"logs_{placeholder}.zip"
+        self.assertTrue(archive.is_file(), sorted(p.name for p in out.iterdir()))
+        with zipfile.ZipFile(archive) as zf:
+            self.assertEqual(zf.namelist(), [f"{placeholder}.log"])
+        self.assertNotIn(host, (out / REPORT_NAME).read_text(encoding="utf-8"))
 
 
 class ChunkingTests(SecretAssertions, TempDirTestCase):

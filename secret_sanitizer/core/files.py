@@ -34,7 +34,7 @@ from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
-from . import merger
+from . import archives, merger
 from .replacer import apply_replacements
 
 REPORT_NAME = f"{APP_NAME}_bericht.txt"
@@ -317,6 +317,16 @@ class FileRun:
         """clean_output: Ausgabeordner vor dem Schreiben leeren (nur wenn er leer
         ist oder von einem früheren Lauf stammt, siehe clear_output_dir).
         dry_run: nur prüfen und zählen, nichts schreiben (auch keinen Bericht)."""
+        self._staging: Path | None = None
+        try:
+            return self._run(input_path, output_dir, write_report, clean_output, dry_run)
+        finally:
+            # Entpackte Archiv-Inhalte (Originale!) immer wieder löschen
+            if self._staging is not None:
+                shutil.rmtree(self._staging, ignore_errors=True)
+                self._staging = None
+
+    def _run(self, input_path, output_dir, write_report, clean_output, dry_run) -> tuple[Report, Path]:
         input_path = Path(input_path)
         out_root = resolve_output_dir(input_path, self.settings, output_dir)
         report = Report(input_name=input_path.resolve().name or str(input_path), started=_now(),
@@ -326,6 +336,9 @@ class FileRun:
         if clean_output:
             check_clearable(out_root)
         files = collect_files(input_path, out_root, self.settings.exclude_patterns, report.excluded)
+        packed: list = []   # (Archiv-Pfad relativ, Typ, [relative Pfade der Einträge])
+        if self.settings.process_archives:
+            files, packed = self._expand_archives(files, report)
         if len(files) > self.settings.max_files_per_run:
             raise RunError(f"Zu viele Dateien ({len(files)}), Limit max_files_per_run = "
                            f"{self.settings.max_files_per_run}.")
@@ -397,6 +410,8 @@ class FileRun:
                 if entry.status == "processed" and rel not in done:
                     entry.status, entry.reason = "skipped", "abgebrochen"
         self._report_progress(total * 2, total * 2, "")
+        if packed and not dry_run:
+            self._pack_archives(packed, dest_rels, done, written, out_root, report)
         if self.settings.sanitize_filenames:
             # Im Bericht nur die bereinigten Namen
             for entry in report.entries:
@@ -411,6 +426,63 @@ class FileRun:
         return report, out_root
 
     # ------------------------------------------------------------------
+    def _expand_archives(self, files, report: Report):
+        """Ersetzt Archive in der Dateiliste durch ihre (in einen Temp-Ordner
+        entpackten) Einträge mit relativem Pfad "archiv.zip/innen/datei.log"."""
+        s = self.settings
+        result = []
+        packed = []
+        for src, rel in files:
+            kind = archives.archive_kind(rel)
+            if kind is None:
+                result.append((src, rel))
+                continue
+            if self._staging is None:
+                self._staging = Path(tempfile.mkdtemp(prefix=f"{APP_NAME}_archiv_"))
+            target = self._staging / str(len(packed))
+            try:
+                members, skipped = archives.extract(
+                    src, kind, target, max_member=int(s.max_file_size_mb * 1024 * 1024),
+                    max_total=int(s.max_archive_mb * 1024 * 1024), max_members=s.max_files_per_run)
+            except archives.ArchiveError as exc:
+                report.entries.append(FileEntry(rel, status="failed", reason=str(exc)))
+                shutil.rmtree(target, ignore_errors=True)
+                continue
+            except Exception as exc:  # noqa: BLE001 - ohne Inhalt berichten
+                report.entries.append(FileEntry(rel, status="failed", reason=safe_reason(exc)))
+                shutil.rmtree(target, ignore_errors=True)
+                continue
+            for name, reason in skipped:
+                report.entries.append(FileEntry(f"{rel}/{name}", status="skipped", reason=reason))
+            member_rels = []
+            for name, path in members:
+                result.append((path, f"{rel}/{name}"))
+                member_rels.append(f"{rel}/{name}")
+            packed.append((rel, kind, member_rels))
+        return result, packed
+
+    def _pack_archives(self, packed, dest_rels: dict, done: set, written: set, out_root: Path,
+                       report: Report) -> None:
+        """Packt die bereinigten Einträge jedes Archivs wieder ein."""
+        for rel, kind, member_rels in packed:
+            finished = [m for m in member_rels if m in done]
+            if not finished:
+                continue
+            # Zielname des Archivs = Zielpfad eines Eintrags ohne dessen inneren Teil
+            first = finished[0]
+            depth = first[len(rel) + 1:].count("/") + 1
+            archive_dest = dest_rels.get(first, first).rsplit("/", depth)[0]
+            folder = out_root / archive_dest
+            try:
+                archives.pack(kind, folder, out_root / archive_dest)
+            except Exception as exc:  # noqa: BLE001
+                report.entries.append(FileEntry(rel, status="failed", reason=f"Einpacken fehlgeschlagen "
+                                                                              f"({safe_reason(exc)})"))
+                continue
+            for m in finished:
+                written.discard(dest_rels.get(m, m))
+            written.add(archive_dest)
+
     def _sanitize_rel(self, rel: str) -> str:
         trailing = "/" if rel.endswith("/") else ""
         parts = [sanitize_path_part(self.sanitizer, part, self.exclude) for part in rel.rstrip("/").split("/")]

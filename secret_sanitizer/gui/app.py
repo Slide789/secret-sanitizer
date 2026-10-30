@@ -25,6 +25,7 @@ from .. import config
 from ..config import APP_TITLE, APP_VERSION, MODE_LABELS, MODES, Settings, load_settings, save_settings
 from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
                           save_sanitized_text)
+from ..core.archives import archive_kind
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
@@ -446,6 +447,14 @@ class App(ctk.CTk):
                 "Große Datei", f"Die Datei ist {size_mb:.0f} MB groß (Limit {self.settings.max_file_size_mb:g} MB).\n"
                                "Trotzdem verarbeiten?", parent=self):
             return
+        # Archive haben keine Textvorschau: wie ein Ordner im Reiter "Dateien & Ordner" bereinigen
+        if self.settings.process_archives and archive_kind(path.name):
+            if messagebox.askyesno("Archiv", "Archive werden entpackt, bereinigt und wieder eingepackt.\n"
+                                             "Jetzt bereinigen und in den Ausgabeordner schreiben?", parent=self):
+                self.tabs.set("Dateien & Ordner")
+                self.input_var.set(str(path))
+                self.start_run()
+            return
         # Große Dateien: ohne Vorschau direkt in den Ausgabeordner
         if size > self.settings.max_preview_chars * 2:
             if messagebox.askyesno("Große Datei", "Die Datei ist zu groß für die farbige Vorschau.\n"
@@ -525,6 +534,9 @@ class App(ctk.CTk):
         self.filenames_var = tk.BooleanVar(value=self.settings.sanitize_filenames)
         ctk.CTkCheckBox(run_bar, text="Dateinamen bereinigen", variable=self.filenames_var,
                         command=self._filenames_changed).pack(side="left", padx=8)
+        self.archives_var = tk.BooleanVar(value=self.settings.process_archives)
+        ctk.CTkCheckBox(run_bar, text="Archive (.zip, .gz, .tar) bereinigen", variable=self.archives_var,
+                        command=self._archives_changed).pack(side="left", padx=8)
         self.progress = ctk.CTkProgressBar(tab)
         self.progress.set(0)
         self.progress.grid(row=4, column=0, columnspan=4, sticky="ew")
@@ -545,6 +557,10 @@ class App(ctk.CTk):
 
     def _filenames_changed(self) -> None:
         self.settings.sanitize_filenames = bool(self.filenames_var.get())
+        self._persist_settings()
+
+    def _archives_changed(self) -> None:
+        self.settings.process_archives = bool(self.archives_var.get())
         self._persist_settings()
 
     def choose_input_file(self) -> None:
@@ -770,6 +786,7 @@ class App(ctk.CTk):
             ("output_dir", "Ausgabeordner (leer = <eingabeordner>_sanitized)"),
             ("output_encoding", "Ausgabekodierung (utf-8, utf-16, cp1252 … oder 'same' = wie Eingabe)"),
             ("max_file_size_mb", "Max. Dateigröße in MB (darüber Rückfrage)"),
+            ("max_archive_mb", "Max. Größe eines Archivs entpackt, in MB (Schutz vor Zip-Bomben)"),
             ("max_files_per_run", "Max. Dateien pro Lauf"),
             ("max_preview_chars", "Max. Zeichen für die farbige Vorschau"),
             ("chunk_size", "Blockgröße (Zeichen) für große Dateien"),
@@ -839,7 +856,7 @@ class App(ctk.CTk):
                 continue
             try:
                 value = float(raw) if "." in raw or parts[0] in ("entropy_thresholds", "mode_thresholds",
-                                                                 "max_file_size_mb") else int(raw)
+                                                                 "max_file_size_mb", "max_archive_mb") else int(raw)
             except ValueError:
                 raise ValueError(key) from None
             if len(parts) == 1:
@@ -879,6 +896,7 @@ class App(ctk.CTk):
 
     def _sync_settings_form(self) -> None:
         self.filenames_var.set(self.settings.sanitize_filenames)
+        self.archives_var.set(self.settings.process_archives)
         data = self.settings.to_dict()
         for key, var in self.setting_vars.items():
             value = data

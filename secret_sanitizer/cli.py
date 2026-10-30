@@ -61,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sanitize-filenames", action="store_true",
                    help="Auch Ordner- und Dateinamen bereinigen (z. B. backup_[HOSTNAME_1].log); der Bericht "
                         "zeigt dann nur die bereinigten Namen.")
+    p.add_argument("--no-archives", action="store_true",
+                   help="Archive (.zip, .tar, .tar.gz, .gz) nicht entpacken, sondern wie Binärdateien überspringen.")
     p.add_argument("--no-exclude", action="store_true",
                    help="Keine Ausschlussmuster verwenden (auch nicht die Standardmuster).")
     p.add_argument("-y", "--yes", action="store_true",
@@ -110,6 +112,8 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         settings.output_encoding = args.output_encoding
     if args.sanitize_filenames:
         settings.sanitize_filenames = True
+    if args.no_archives:
+        settings.process_archives = False
     if args.no_exclude:
         settings.exclude_patterns = []
     settings.exclude_patterns = settings.exclude_patterns + [p for p in args.exclude if p.strip()]
