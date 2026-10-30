@@ -11,12 +11,15 @@ from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 from ..core.models import CATEGORIES
-from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, rule_from_dict
+from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, redos_risk, rule_from_dict
 from ..detectors.wordlist_detector import compile_wordlist
 from .widgets import HighlightTextbox, style_treeview
 
 CATEGORY_IDS = list(CATEGORIES)
 REGEX_PREFIX = "re:"
+REDOS_WARNING = ("Das Muster enthält verschachtelte Wiederholungen wie (a+)+ oder (\\w+\\s?)+. Solche Muster "
+                 "können bei manchen Texten extrem langsam werden und das Programm einfrieren. Besser die innere "
+                 "oder äußere Wiederholung entfernen oder einen festen Trenner einbauen.")
 
 
 class RuleEditor(ctk.CTkFrame):
@@ -134,6 +137,11 @@ class RuleEditor(ctk.CTkFrame):
         except re.error as exc:
             self.test_result.configure(text=f"Ungültiges Muster: {exc.msg} (Position {exc.pos})", text_color="#e74c3c")
             return
+        if redos_risk(pattern):
+            # Nicht live testen: ein solches Muster könnte die Oberfläche einfrieren
+            self.test_result.configure(text="⚠ Möglicherweise sehr langsames Muster (verschachtelte Wiederholung) "
+                                            "– wird nicht live getestet.", text_color="#e74c3c")
+            return
         text = self.test_box.get_text()
         count = 0
         for m in regex.finditer(text):
@@ -197,6 +205,9 @@ class RuleEditor(ctk.CTkFrame):
             })
         except RuleError as exc:
             messagebox.showerror("Regel ungültig", str(exc), parent=self)
+            return
+        if redos_risk(rule.pattern) and not messagebox.askyesno(
+                "Langsames Muster", REDOS_WARNING + "\n\nTrotzdem übernehmen?", parent=self):
             return
         if self._current is None:
             self.user_rules.rules.append(rule)
@@ -303,6 +314,9 @@ class RuleEditor(ctk.CTkFrame):
                 except re.error as exc:
                     messagebox.showerror("Allowlist", f"Ungültiger regulärer Ausdruck in der Allowlist ({exc.msg}).",
                                          parent=self)
+                    return False
+                if redos_risk(value) and not messagebox.askyesno(
+                        "Allowlist", REDOS_WARNING + "\n\nTrotzdem speichern?", parent=self):
                     return False
                 entries.append(AllowEntry(value=value, regex=True, description="In der GUI gepflegt."))
             else:

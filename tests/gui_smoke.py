@@ -172,6 +172,28 @@ def main() -> int:
     assert SECRETS["db_password"] not in app.result.text
     screenshot(app, "6_gross")
 
+    # 7) Große Texte: Vorschau im Hintergrund, Fenster bleibt bedienbar
+    from secret_sanitizer.gui.app import ASYNC_PREVIEW_CHARS
+    big = sample * (ASYNC_PREVIEW_CHARS // len(sample) + 2)
+    app.original_box.set_text(big)
+    app.run_preview()
+    assert app._preview_pending, "große Vorschau sollte im Hintergrund laufen"
+    for _ in range(600):
+        pump(app, 0.05)
+        if not app._preview_pending:
+            break
+    assert not app._preview_pending and app.result_text_original == big
+    assert SECRETS["db_password"] not in app.result.text
+    # Veraltetes Ergebnis wird verworfen: großer Text, sofort danach kleiner Text
+    app.run_preview()
+    app.original_box.set_text("password=Kurz123x")
+    app.run_preview(sync=True)
+    pump(app, 3.0)
+    assert app.result.text == "password=[PASSWORD_1]", app.result.text
+    app.original_box.set_text(big)
+    app.copy_result()   # muss synchron das aktuelle Ergebnis kopieren
+    assert app.clipboard_get() == app.result.text and app.result_text_original == big
+
     app._on_close()
     if errors:
         print("GUI-Fehler:", errors)

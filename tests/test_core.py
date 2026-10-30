@@ -11,7 +11,7 @@ from secret_sanitizer.core import encoding
 from secret_sanitizer.core.merger import resolve_overlaps
 from secret_sanitizer.core.models import CATEGORIES, PERSONAL_CATEGORIES, Finding
 from secret_sanitizer.core.replacer import PlaceholderMapping, apply_replacements
-from secret_sanitizer.core.rules import RuleError, load_ruleset, rule_from_dict
+from secret_sanitizer.core.rules import RuleError, load_ruleset, redos_risk, rule_from_dict, slow_pattern_warnings
 
 
 class ConfigTests(TempDirTestCase):
@@ -104,6 +104,15 @@ class RuleFormatTests(TempDirTestCase):
         self.assertFalse(ipv4[0].enabled)
         self.assertTrue(rs.is_allowed("10.0.0.1"))
         self.assertEqual(rs.wordlists[-1].category, "COMPANY")
+
+    def test_redos_risk(self):
+        for pattern in [r"(a+)+", r"(a*)*", r"(\w+\s?)+$", r"((ab)*)*", r"(?:x+)+y", r"(.*)*", r"([a-z]+)*@"]:
+            self.assertTrue(redos_risk(pattern), pattern)
+        for pattern in [r"TICKET-\d+", r"(\w+\s+)+", r"(?:\.[a-z](?:[a-z\-]*[a-z])?)*", r"a+b+", r"(ab)+",
+                        r"(\d{1,3}\.){3}\d+", r"(?:[A-Z]+-)+\d+", "(", ""]:
+            self.assertFalse(redos_risk(pattern), pattern)
+        # Keine mitgelieferte Regel darf als langsam gelten
+        self.assertEqual(slow_pattern_warnings(default_ruleset()), [])
 
     def test_allowlist_regex_not_combinable(self):
         # Einzeln gültig, zusammen nicht kombinierbar: darf die Erkennung nicht lahmlegen

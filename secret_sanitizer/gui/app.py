@@ -27,13 +27,16 @@ from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_re
                           save_sanitized_text)
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
-from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules
+from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
 from .rule_editor import RuleEditor
 from .widgets import CategoryPanel, FindingTable, HighlightTextbox
 
 HINWEIS = ("⚠  Ergebnis vor dem Senden selbst prüfen! Das Tool senkt das Risiko deutlich, garantiert aber nicht, "
            "dass alles gefunden wird. Interne Richtlinien zur KI-Nutzung beachten.")
 PREVIEW_DELAY_MS = 500
+# Ab dieser Textlänge läuft die Vorschau im Hintergrund, damit das Fenster
+# beim Einfügen großer Texte nicht einfriert.
+ASYNC_PREVIEW_CHARS = 50_000
 
 
 class App(ctk.CTk):
@@ -66,6 +69,8 @@ class App(ctk.CTk):
         # nur im Arbeitsspeicher, für die Rückübersetzung von KI-Antworten
         self._text_sanitizer: Sanitizer | None = None
         self._run_sanitizer: Sanitizer | None = None
+        self._preview_gen = 0          # zählt Vorschau-Aufträge; alte Ergebnisse werden verworfen
+        self._preview_pending = False
 
         self._build_top()
         self.tabs = ctk.CTkTabview(self)
@@ -80,6 +85,10 @@ class App(ctk.CTk):
         if self.ruleset.errors:
             self.after(300, lambda: messagebox.showwarning(
                 "Regeln", "Einige eigene Regeln sind ungültig und werden ignoriert:\n\n" + "\n".join(self.ruleset.errors)))
+        slow = slow_pattern_warnings(self.ruleset)
+        if slow:
+            self.after(400, lambda: messagebox.showwarning(
+                "Regeln", "Achtung, mögliche Ursache für Hänger:\n\n" + "\n".join(slow)))
 
     # ------------------------------------------------------------------
     # Regeln / Sanitizer
@@ -231,8 +240,14 @@ class App(ctk.CTk):
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(10 if immediate else PREVIEW_DELAY_MS, self.run_preview)
 
-    def run_preview(self) -> None:
+    def run_preview(self, sync: bool = False) -> None:
+        """Aktualisiert die Vorschau. Große Texte werden im Hintergrund analysiert
+        (außer bei sync=True, z. B. direkt vor dem Kopieren oder Speichern)."""
+        if self._preview_job is not None:
+            self.after_cancel(self._preview_job)
         self._preview_job = None
+        self._preview_gen += 1
+        self._preview_pending = False
         text = self.original_box.get_text()
         if not text:
             self.result = None
@@ -244,12 +259,32 @@ class App(ctk.CTk):
             return
         # Neue Sitzung pro Vorschau: Nummerierung beginnt immer bei 1
         sanitizer = self._new_sanitizer()
+        exclude = set(self.excluded_keys)
+        if not sync and len(text) >= ASYNC_PREVIEW_CHARS:
+            gen = self._preview_gen
+            self._preview_pending = True
+            self.summary_label.configure(text=f"Analysiere {len(text):,} Zeichen …".replace(",", "."))
+            self.config(cursor="watch")
+
+            def work() -> None:
+                try:
+                    result = sanitizer.sanitize(text, exclude=exclude)
+                    self._queue.put(("preview", gen, text, sanitizer, result))
+                except Exception as exc:  # noqa: BLE001 - Meldung ohne Inhalt
+                    self._queue.put(("preview_error", gen, safe_reason(exc)))
+
+            threading.Thread(target=work, daemon=True).start()
+            return
         self.config(cursor="watch")
         self.update_idletasks()
         try:
-            self.result = sanitizer.sanitize(text, exclude=self.excluded_keys)
+            result = sanitizer.sanitize(text, exclude=exclude)
         finally:
             self.config(cursor="")
+        self._apply_preview(text, sanitizer, result)
+
+    def _apply_preview(self, text: str, sanitizer: Sanitizer, result) -> None:
+        self.result = result
         self._text_sanitizer = sanitizer
         self.result_text_original = text
         large = len(text) > self.settings.max_preview_chars
@@ -363,11 +398,11 @@ class App(ctk.CTk):
             self._toast("In die Allowlist übernommen (Reiter \"Regeln\").")
 
     def copy_result(self) -> None:
+        if self._preview_pending or self.original_box.get_text() != self.result_text_original:
+            self.run_preview(sync=True)
         if not self.result:
             self._toast("Noch nichts bereinigt.", error=True)
             return
-        if self.original_box.get_text() != self.result_text_original:
-            self.run_preview()
         self.clipboard_clear()
         self.clipboard_append(self.result.text)
         self._toast("Bereinigter Text wurde in die Zwischenablage kopiert. Bitte vor dem Senden kurz prüfen.")
@@ -434,7 +469,7 @@ class App(ctk.CTk):
     def save_loaded_file(self) -> None:
         if not self.loaded_file:
             return
-        self.run_preview()
+        self.run_preview(sync=True)
         path, loaded = self.loaded_file
         name = None
         if self.settings.sanitize_filenames and self._text_sanitizer is not None:
@@ -599,6 +634,17 @@ class App(ctk.CTk):
                     self.samples_box.set_text("\n".join(report.samples) or "(keine Ersetzungen)")
                     self.progress.set(1)
                     self.progress_label.configure(text="Abgebrochen." if report.aborted else "Fertig.")
+                elif kind == "preview":
+                    _, gen, text, sanitizer, result = msg
+                    if gen == self._preview_gen:   # sonst veraltet (inzwischen weitergetippt)
+                        self._preview_pending = False
+                        self.config(cursor="")
+                        self._apply_preview(text, sanitizer, result)
+                elif kind == "preview_error":
+                    if msg[1] == self._preview_gen:
+                        self._preview_pending = False
+                        self.config(cursor="")
+                        self.summary_label.configure(text=f"Vorschau fehlgeschlagen ({msg[2]}).")
                 elif kind == "error":
                     self._run_finished()
                     self.progress_label.configure(text="Fehler.")

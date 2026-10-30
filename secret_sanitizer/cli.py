@@ -20,7 +20,7 @@ from .core.encoding import decode_bytes
 from .core.files import FileRun, RunError
 from .core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES
 from .core.pipeline import Sanitizer, load_default_ruleset
-from .core.rules import load_ruleset, load_user_rules, merge_user_rules
+from .core.rules import load_ruleset, load_user_rules, merge_user_rules, slow_pattern_warnings
 from .config import default_rules_path
 
 EXIT_OK = 0
@@ -130,7 +130,7 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         merge_user_rules(ruleset, load_user_rules(Path(args.rules)))
     else:
         ruleset = load_ruleset(default_rules_path(), user_rules_path())
-    for error in ruleset.errors:
+    for error in ruleset.errors + slow_pattern_warnings(ruleset):
         _err(f"Warnung: {error}")
     return Sanitizer(settings, ruleset)
 

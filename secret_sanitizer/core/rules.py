@@ -137,6 +137,81 @@ def compile_pattern(pattern: str, flags, rule_id: str) -> re.Pattern:
         raise RuleError(f"Regel '{rule_id}': ungültiger regulärer Ausdruck ({exc.msg}, Position {exc.pos})") from None
 
 
+def _sre_parse(pattern: str):
+    try:
+        from re import _parser as sre_parse   # Python 3.11+
+    except ImportError:                       # pragma: no cover - Python 3.10
+        import sre_parse
+    return sre_parse.parse(pattern)
+
+
+def _flat_items(seq):
+    """Elemente einer Sequenz; Gruppen (...) werden aufgelöst."""
+    for op, av in seq:
+        if str(op) == "SUBPATTERN":
+            yield from _flat_items(av[-1])
+        else:
+            yield op, av
+
+
+def _is_unbounded_repeat(op, av) -> bool:
+    return str(op) in ("MAX_REPEAT", "MIN_REPEAT") and av[1] > 1000
+
+
+def _children(op, av):
+    """Untersequenzen eines Elements (für die rekursive Suche)."""
+    name = str(op)
+    if name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
+        return [av[2]]
+    if name == "SUBPATTERN":
+        return [av[-1]]
+    if name == "BRANCH":
+        return list(av[1])
+    if name in ("ASSERT", "ASSERT_NOT", "ATOMIC_GROUP"):
+        return [av[-1]]
+    return []
+
+
+def _risky(seq) -> bool:
+    for op, av in seq:
+        if _is_unbounded_repeat(op, av):
+            items = list(_flat_items(av[2]))
+            inner = [i for i in items if _is_unbounded_repeat(*i)]
+            others_mandatory = any(
+                (str(o) in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT") and a[0] >= 1
+                 and not _is_unbounded_repeat(o, a))
+                or str(o) in ("LITERAL", "NOT_LITERAL", "IN", "ANY", "BRANCH")
+                or (_is_unbounded_repeat(o, a) and a[0] >= 1 and a is not inner[0][1])
+                for o, a in items) if inner else True
+            if inner and not others_mandatory:
+                return True
+        for child in _children(op, av):
+            if _risky(child):
+                return True
+    return False
+
+
+def redos_risk(pattern: str) -> bool:
+    """True, wenn das Muster verschachtelte Wiederholungen ohne festen Trenner
+    enthält, z. B. (a+)+ oder (\\w+\\s?)+. Solche Muster können bei passenden
+    Texten exponentiell lange brauchen ("catastrophic backtracking") und das
+    Programm einfrieren. Eine Heuristik: findet die typischen Fälle, nicht alle."""
+    try:
+        return _risky(_sre_parse(pattern))
+    except Exception:  # noqa: BLE001 - ungültige Muster prüft compile_pattern
+        return False
+
+
+def slow_pattern_warnings(ruleset) -> list[str]:
+    """Warnungen (ohne Textinhalte) für aktive Regeln und Allowlist-Einträge,
+    die laut redos_risk sehr langsam werden können."""
+    warnings = [f"Regel '{r.id}': Muster kann sehr langsam werden (verschachtelte Wiederholung)"
+                for r in ruleset.rules if r.enabled and redos_risk(r.pattern)]
+    warnings += ["Allowlist: ein regulärer Ausdruck kann sehr langsam werden (verschachtelte Wiederholung)"
+                 for a in ruleset.allowlist if a.regex and redos_risk(a.value)]
+    return warnings
+
+
 def rule_from_dict(data: dict) -> Rule:
     if not isinstance(data, dict):
         raise RuleError("Regel ist kein Objekt")
