@@ -7,8 +7,8 @@ if not exist .venv-build (
     python -m venv .venv-build || goto :fehler
 )
 call .venv-build\Scripts\activate.bat || goto :fehler
-python -m pip install --upgrade pip || goto :fehler
-python -m pip install -r requirements-build.txt || goto :fehler
+REM Nur fest angepinnte Pakete mit geprüfter SHA-256-Prüfsumme (siehe requirements-build.txt)
+python -m pip install --require-hashes --only-binary=:all: -r requirements-build.txt || goto :fehler
 python -m unittest discover -s tests -t . || goto :fehler
 pyinstaller --noconfirm --clean packaging\secret_sanitizer.spec || goto :fehler
 echo.

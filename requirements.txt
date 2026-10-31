@@ -1,5 +1,26 @@
-# Nur die GUI braucht Zusatzpakete. Erkennung, Regeln und Kommandozeile
-# laufen ausschließlich mit der Python-Standardbibliothek (ab Python 3.10).
-customtkinter>=5.2.2
-# Drag & Drop (optional: ohne das Paket läuft die GUI ohne Drag & Drop)
-tkinterdnd2>=0.4.2
+# Pakete der Oberfläche, fest angepinnt mit SHA-256-Prüfsummen von PyPI.
+# pip prüft dadurch jedes heruntergeladene Paket (Schutz vor manipulierten Paketen).
+# Erkennung, Regeln und Kommandozeile laufen ohne diese Pakete (nur Standardbibliothek, ab Python 3.10);
+# ohne pypdf werden PDFs übersprungen, ohne tkinterdnd2 gibt es kein Drag & Drop.
+#
+# Aktualisieren: Version ändern und die Prüfsummen von https://pypi.org/project/<name>/<version>/#files
+# übernehmen (alle Dateien der Version).
+
+# GUI
+customtkinter==6.0.0 \
+    --hash=sha256:704fcbf1d2fca06bd7881b0afacfae72aed9864c9b6de2870e632e55eb3a0456 \
+    --hash=sha256:c782df167bc64ab3fc3140286df06967ac2de4dcc97dd5958426fe9c1a98057b
+darkdetect==0.8.0 \
+    --hash=sha256:a7509ccf517eaad92b31c214f593dbcf138ea8a43b2935406bbd565e15527a85 \
+    --hash=sha256:b5428e1170263eb5dea44c25dc3895edd75e6f52300986353cd63533fe7df8b1
+packaging==26.3 \
+    --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+# Drag & Drop (optional)
+tkinterdnd2==0.7.0 \
+    --hash=sha256:bc5039c28092a702ee70fe15bd9b948cb579571e3b46ba4a092c9929966ca9f3 \
+    --hash=sha256:f93d4f5ad439648ba1673f15db3e271cdd08f075c87f43553ffcdde4e634a717
+# PDF (optional)
+pypdf==6.21.4 \
+    --hash=sha256:33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c \
+    --hash=sha256:c8817e3f888d47a087872ded69812c1ef30cacb871d6e053e0c00bbaf0bc2163
