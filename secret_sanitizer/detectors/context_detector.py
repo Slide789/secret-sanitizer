@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 
+from ..core.merger import PHRASE_RULE
 from ..core.models import DetectContext, Finding
 from .regex_detector import RegexDetector, strip_quotes
 
@@ -30,7 +31,6 @@ _BLOCK_INDICATOR_RE = re.compile(r"[|>][-+1-9]{0,2}")
 # Weiteres Wort einer Passphrase in derselben Zeile
 _PHRASE_WORD_RE = re.compile(r"[ \t]+([^\s;&<>]+)")
 MAX_PHRASE_CHARS = 200
-PHRASE_PENALTY = 0.01
 QUOTE_CHARS = "\"'`"
 # <password>wert</password>
 _XML_RE = re.compile(r"<(?P<key>[A-Za-z_][\w:.\-]{0,63})(?:\s[^<>]*)?>(?P<value>[^<\n]{1,500})</(?P=key)>")
@@ -209,12 +209,11 @@ class ContextDetector:
         if phrase_end == end:
             findings.append(Finding(start, end, category, confidence, self.name, "kv"))
             return end
-        # Passphrase mit Leerzeichen: zwei Treffer. Die ganze Phrase gewinnt,
-        # wenn nichts anderes in ihr liegt. Liegt dahinter ein eigener Treffer
-        # gleicher Sicherheit (IP, E-Mail ...), verliert sie knapp, und der
-        # Grundtreffer ersetzt das erste Wort; der Rest bleibt eigenständig erkannt.
-        findings.append(Finding(start, phrase_end, category, confidence - PHRASE_PENALTY, self.name, "kv_phrase"))
-        findings.append(Finding(start, end, category, confidence - 2 * PHRASE_PENALTY, self.name, "kv"))
+        # Passphrase mit Leerzeichen: zwei Treffer. Die ganze Phrase ersetzt den
+        # Grundtreffer nur, wenn in ihr kein anderer Treffer liegt (IP, Hostname,
+        # E-Mail ...); das entscheidet merger.resolve_overlaps.
+        findings.append(Finding(start, end, category, confidence, self.name, "kv"))
+        findings.append(Finding(start, phrase_end, category, confidence, self.name, PHRASE_RULE))
         return phrase_end
 
     def _emit_yaml_blocks(self, text, findings) -> None:

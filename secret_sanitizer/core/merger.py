@@ -24,6 +24,7 @@ from .replacer import PLACEHOLDER_RE, value_key
 AGREEMENT_BONUS = 0.05
 CONTAINER_MIN_CONFIDENCE = 0.8
 BLOCK_CATEGORIES = frozenset({"PRIVATE_KEY", "CERTIFICATE"})
+PHRASE_RULE = "kv_phrase"   # Passphrase mit Leerzeichen aus dem Kontext-Detektor
 
 
 def filter_findings(findings, text, settings, ruleset, exclude_keys=frozenset()) -> list[Finding]:
@@ -107,6 +108,8 @@ class _IntervalSet:
 def resolve_overlaps(primary: list[Finding], propagated: list[Finding] = ()) -> list[Finding]:
     size = max([f.end for f in primary] + [f.end for f in propagated] + [0])
     selected = _IntervalSet(size)
+    phrases = [f for f in primary if f.rule_id == PHRASE_RULE]
+    primary = [f for f in primary if f.rule_id != PHRASE_RULE]
     ordered = sorted(_combine_same_span(primary), key=lambda f: (-f.confidence, -f.length, f.start))
     for f in ordered:
         hits = selected.overlapping(f)
@@ -115,6 +118,15 @@ def resolve_overlaps(primary: list[Finding], propagated: list[Finding] = ()) -> 
             continue
         if (f.category in BLOCK_CATEGORIES and f.confidence >= CONTAINER_MIN_CONFIDENCE
                 and all(f.contains(o) and f.length > o.length for o in hits)):
+            selected.remove(hits)
+            selected.add(f)
+    # Passphrasen ("password: correct horse battery") ersetzen ihren Grundtreffer
+    # (das erste Wort) nur, wenn im Rest der Phrase kein anderer Treffer liegt.
+    # Sonst bleibt es beim ersten Wort, und z. B. ein Hostname dahinter wird
+    # eigenständig erkannt statt im Passwort-Platzhalter zu verschwinden.
+    for f in sorted(phrases, key=lambda x: x.start):
+        hits = selected.overlapping(f)
+        if all(h.start == f.start and h.detector == f.detector and h.category == f.category for h in hits):
             selected.remove(hits)
             selected.add(f)
     for f in sorted(propagated, key=lambda x: (-x.length, x.start)):

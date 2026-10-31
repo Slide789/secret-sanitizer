@@ -43,6 +43,9 @@ class ContextDetectorTests(SecretAssertions, unittest.TestCase):
         # Ein sichererer Treffer dahinter darf das Passwort nicht verdrängen
         self.assertEqual(sanitize("password=geheim99 an bob@firma.example.de"), "password=[PASSWORD_1] an [EMAIL_1]")
         self.assertEqual(sanitize("test pass: 5 of 6"), "test pass: 5 of 6")
+        # Andere Treffer im Rest der Zeile bleiben eigenständig (nicht im Passwort-Platzhalter)
+        self.assertEqual(sanitize("password=Geheim0x host srv0.corp.local"), "password=[PASSWORD_1] host [HOSTNAME_1]")
+        self.assertEqual(sanitize("password=Geheim99 und 10.1.2.3"), "password=[PASSWORD_1] und [IP_1]")
 
     def test_quote_inside_value(self):
         self.assertEqual(sanitize('password=abc"def123'), "password=[PASSWORD_1]")
