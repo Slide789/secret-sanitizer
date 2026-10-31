@@ -21,6 +21,15 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+# Drag & Drop ist optional: fehlt tkinterdnd2, läuft alles andere normal weiter.
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    _DND_BASES: tuple = (TkinterDnD.DnDWrapper,)
+except ImportError:  # pragma: no cover - abhängig von der Installation
+    TkinterDnD = None
+    DND_FILES = ""
+    _DND_BASES = ()
+
 from .. import config
 from ..config import APP_TITLE, APP_VERSION, MODE_LABELS, MODES, Settings, load_settings, save_settings
 from ..core.models import PERSONAL_CATEGORIES
@@ -41,7 +50,7 @@ PREVIEW_DELAY_MS = 500
 ASYNC_PREVIEW_CHARS = 50_000
 
 
-class App(ctk.CTk):
+class App(ctk.CTk, *_DND_BASES):
     def __init__(self) -> None:
         super().__init__()
         ctk.set_appearance_mode("system")
@@ -83,6 +92,7 @@ class App(ctk.CTk):
         self._build_rules_tab(self.tabs.add("Regeln"))
         self._build_settings_tab(self.tabs.add("Einstellungen"))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.dnd_enabled = self._enable_drag_and_drop()
         self.after(100, self._poll_queue)
         if self.ruleset.errors:
             self.after(300, lambda: messagebox.showwarning(
@@ -211,7 +221,8 @@ class App(ctk.CTk):
         left.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
         right = ctk.CTkFrame(tab)
         right.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
-        for frame, title in ((left, "Original (hier Text einfügen)"), (right, "Bereinigt (das darf an die KI)")):
+        original_title = "Original (Text einfügen oder Datei hierher ziehen)" if TkinterDnD else "Original (hier Text einfügen)"
+        for frame, title in ((left, original_title), (right, "Bereinigt (das darf an die KI)")):
             frame.grid_rowconfigure(1, weight=1)
             frame.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w",
@@ -447,8 +458,53 @@ class App(ctk.CTk):
             self.save_file_btn.configure(state="disabled")
         self.schedule_preview(immediate=True)
 
-    def open_file(self) -> None:
-        path = filedialog.askopenfilename(title="Datei öffnen", parent=self)
+    def _enable_drag_and_drop(self) -> bool:
+        """Dateien und Ordner aufs Fenster ziehen. Lädt die mitgelieferte
+        tkdnd-Bibliothek; klappt das nicht, bleibt die App ohne Drag & Drop."""
+        if TkinterDnD is None:
+            return False
+        try:
+            self.TkdndVersion = TkinterDnD._require(self)
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind("<<Drop>>", self._on_drop)
+        except (tk.TclError, RuntimeError, OSError):
+            return False
+        return True
+
+    def _on_drop(self, event):
+        # Nur Dateipfade (DND_FILES), kein gezogener Text
+        self.handle_dropped_paths(self.tk.splitlist(event.data))
+        return event.action
+
+    def handle_dropped_paths(self, raw_paths) -> None:
+        """Eine Textdatei -> Vorschau; Ordner, Archiv oder große Datei -> Reiter
+        \"Dateien & Ordner\". Es gelten dieselben Prüfungen wie bei \"Datei öffnen\"."""
+        paths = [Path(p) for p in raw_paths if p]
+        existing = [p for p in paths if p.exists()]
+        if not existing:
+            self._toast("Abgelegtes Element nicht gefunden.", error=True)
+            return
+        if len(existing) > 1:
+            messagebox.showinfo("Drag & Drop", "Bitte nur eine Datei oder einen Ordner auf einmal ablegen.\n"
+                                               "Mehrere Dateien am besten in einen Ordner legen und den Ordner "
+                                               "ablegen.", parent=self)
+            return
+        path = existing[0]
+        if path.is_dir():
+            self.tabs.set("Dateien & Ordner")
+            self.input_var.set(str(path))
+            self._toast("Ordner übernommen. Mit \"Bereinigen starten\" geht es los.")
+            return
+        if self.tabs.get() == "Dateien & Ordner":
+            self.input_var.set(str(path))
+            self._toast("Datei übernommen. Mit \"Bereinigen starten\" geht es los.")
+            return
+        self.tabs.set("Text & Vorschau")
+        self.open_file(path)
+
+    def open_file(self, path: Path | None = None) -> None:
+        if path is None:
+            path = filedialog.askopenfilename(title="Datei öffnen", parent=self)
         if not path:
             return
         path = Path(path)

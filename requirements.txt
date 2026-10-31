@@ -1,3 +1,5 @@
-# Nur die GUI braucht ein Zusatzpaket. Erkennung, Regeln und Kommandozeile
+# Nur die GUI braucht Zusatzpakete. Erkennung, Regeln und Kommandozeile
 # laufen ausschließlich mit der Python-Standardbibliothek (ab Python 3.10).
 customtkinter>=5.2.2
+# Drag & Drop (optional: ohne das Paket läuft die GUI ohne Drag & Drop)
+tkinterdnd2>=0.4.2

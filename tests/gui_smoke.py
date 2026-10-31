@@ -187,6 +187,30 @@ def main() -> int:
     app._mode_changed("Streng")
     pump(app, 0.3)
 
+    # 5e) Drag & Drop (Ereignis wie von tkdnd: Tcl-Liste, Pfade mit Leerzeichen in {})
+    assert app.dnd_enabled, "tkdnd nicht geladen"
+
+    class Drop:
+        def __init__(self, *paths):
+            self.data = " ".join("{" + str(p) + "}" for p in paths)
+            self.action = "copy"
+
+    dropped = TMP / "mit leerzeichen.log"
+    dropped.write_text(f"password={SECRETS['db_password']}\n", encoding="utf-8")
+    app.tabs.set("Text & Vorschau")
+    app._on_drop(Drop(dropped))
+    pump(app, 1.0)
+    assert app.original_box.get_text().startswith("password="), app.original_box.get_text()[:80]
+    assert SECRETS["db_password"] not in app.clean_box.get_text()
+    app._on_drop(Drop(src))
+    pump(app, 0.2)
+    assert app.tabs.get() == "Dateien & Ordner" and app.input_var.get() == str(src)
+    shown = []
+    app_module.messagebox.showinfo = lambda *a, **k: shown.append(a)
+    app._on_drop(Drop(dropped, src))
+    assert shown and app.input_var.get() == str(src), "mehrere Elemente sollten abgelehnt werden"
+    app.tabs.set("Text & Vorschau")
+
     # 6) Einstellungen speichern
     app.tabs.set("Einstellungen")
     app.setting_vars["max_preview_chars"].set("50")
