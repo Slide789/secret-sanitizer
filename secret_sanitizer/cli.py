@@ -71,6 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "zeigt dann nur die bereinigten Namen.")
     p.add_argument("--no-archives", action="store_true",
                    help="Archive (.zip, .tar, .tar.gz, .gz) nicht entpacken, sondern wie Binärdateien überspringen.")
+    p.add_argument("--workers", type=int, metavar="N",
+                   help="CPU-Kerne für Ordnerläufe (Standard: automatisch, 1 = nur ein Kern).")
     p.add_argument("--no-exclude", action="store_true",
                    help="Keine Ausschlussmuster verwenden (auch nicht die Standardmuster).")
     p.add_argument("-y", "--yes", action="store_true",
@@ -138,6 +140,10 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         settings.sanitize_filenames = True
     if args.no_archives:
         settings.process_archives = False
+    if args.workers is not None:
+        if args.workers < 1:
+            parser.error("--workers muss mindestens 1 sein.")
+        settings.workers = args.workers
     if args.no_exclude:
         settings.exclude_patterns = []
     settings.exclude_patterns = settings.exclude_patterns + [p for p in args.exclude if p.strip()]

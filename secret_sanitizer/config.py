@@ -74,6 +74,8 @@ class Settings:
     # Archive (.zip, .tar, .tar.gz/.tgz, .gz) entpacken, Inhalt bereinigen, wieder einpacken
     process_archives: bool = True
     max_archive_mb: float = 500
+    # CPU-Kerne für Ordnerläufe: 0 = automatisch (Kerne - 1, höchstens 8), 1 = nur ein Kern
+    workers: int = 0
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:

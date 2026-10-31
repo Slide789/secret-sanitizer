@@ -18,8 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 TMP = ROOT / "tests" / "_tmp" / "gui_smoke"
-shutil.rmtree(TMP, ignore_errors=True)
-TMP.mkdir(parents=True)
+if __name__ == "__main__":   # nicht in Worker-Prozessen, die dieses Skript erneut importieren
+    shutil.rmtree(TMP, ignore_errors=True)
+    TMP.mkdir(parents=True)
 
 from secret_sanitizer import config  # noqa: E402
 

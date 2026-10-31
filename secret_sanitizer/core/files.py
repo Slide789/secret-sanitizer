@@ -34,7 +34,7 @@ from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
-from . import archives, merger
+from . import archives, merger, parallel
 from .replacer import apply_replacements
 
 REPORT_NAME = f"{APP_NAME}_bericht.txt"
@@ -75,6 +75,7 @@ class Report:
     # Dateien im Ausgabeordner, die nicht aus diesem Lauf stammen (frühere Läufe)
     stale: list = field(default_factory=list)
     cleaned: bool = False
+    workers: int = 1
     # Stichproben bereinigter Zeilen, nur für die Anzeige (nicht im Berichts-File)
     samples: list = field(default_factory=list)
 
@@ -101,6 +102,8 @@ class Report:
         ]
         if self.excluded:
             lines.append(f"Ausgeschlossen (Ausschlussmuster): {len(self.excluded)}")
+        if self.workers > 1:
+            lines.append(f"CPU-Kerne: {self.workers}")
         if self.cleaned:
             lines.append("Ausgabeordner wurde vor dem Lauf geleert.")
         if self.stale:
@@ -345,13 +348,12 @@ class FileRun:
         limit = self.settings.max_file_size_mb * 1024 * 1024
         total = len(files)
 
-        # --- Vorprüfung + Durchlauf 1 (lernen) ---
-        todo: list[tuple[Path, str, FileEntry]] = []
-        for i, (src, rel) in enumerate(files):
+        # --- Vorprüfung (Binärdateien, Größe) ---
+        candidates: list = []   # (Quelle, relativer Pfad, Eintrag, Kodierung)
+        for src, rel in files:
             if self.cancel.is_set():
                 report.aborted = "vom Benutzer abgebrochen"
                 break
-            self._report_progress(i, total * 2, rel)
             entry = FileEntry(rel)
             report.entries.append(entry)
             try:
@@ -367,14 +369,18 @@ class FileRun:
                         entry.status = "skipped"
                         entry.reason = f"größer als {self.settings.max_file_size_mb:g} MB (max_file_size_mb)"
                         continue
-                entry.encoding = self._learn_file(src, encoding)
-                todo.append((src, rel, entry))
-            except _Cancelled:
-                report.aborted = "vom Benutzer abgebrochen"
-                entry.status, entry.reason = "skipped", "abgebrochen"
-                break
+                candidates.append((src, rel, entry, encoding))
             except Exception as exc:  # noqa: BLE001 - jeder Fehler wird ohne Inhalt berichtet
                 entry.status, entry.reason = "failed", safe_reason(exc)
+        use_parallel = parallel.should_parallelize(self.settings, len(candidates),
+                                                   sum(c[2].size_bytes for c in candidates))
+        report.workers = parallel.worker_count(self.settings) if use_parallel else 1
+
+        # --- Durchlauf 1 (lernen) ---
+        todo: list = []   # (Quelle, relativer Pfad, Eintrag)
+        if not report.aborted:
+            learn = self._learn_parallel if use_parallel else self._learn_sequential
+            todo = learn(candidates, report, total)
 
         # Zielnamen (bei sanitize_filenames bereinigt; das Mapping kennt jetzt alle Werte)
         dest_rels = self._dest_names(report) if self.settings.sanitize_filenames else {}
@@ -385,29 +391,22 @@ class FileRun:
         if not report.aborted and clean_output:
             clear_output_dir(out_root)
             report.cleaned = True
-        if not report.aborted:
-            for i, (src, rel, entry) in enumerate(todo):
-                if self.cancel.is_set():
-                    report.aborted = "vom Benutzer abgebrochen"
-                    break
-                self._report_progress(total + i, total * 2, rel)
-                try:
-                    dest_rel = dest_rels.get(rel, rel)
-                    if dry_run:
-                        entry.counts = self._process_file(src, entry.encoding, report, None)
-                    else:
-                        entry.counts = self._write_file(src, out_root / dest_rel, entry.encoding, report)
-                    written.add(dest_rel)
-                    done.add(rel)
-                except _Cancelled:
-                    report.aborted = "vom Benutzer abgebrochen"
-                    entry.status, entry.reason = "skipped", "abgebrochen"
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    entry.status, entry.reason = "failed", safe_reason(exc)
+        if not report.aborted and todo:
+            jobs = [(src, rel, entry, dest_rels.get(rel, rel)) for src, rel, entry in todo]
+            redo = use_parallel and not self._write_parallel(jobs, out_root, dry_run, report, total, written, done)
+            if not use_parallel or redo:
+                if redo:
+                    # Ein Worker fand einen neuen Wert: den ganzen Durchlauf mit einem
+                    # Kern wiederholen, damit der Wert auch in allen anderen Dateien
+                    # ersetzt wird (Ergebnis wie bei einem Lauf mit einem Kern)
+                    self.sanitizer.mapping = self._pass2_snapshot
+                    report.samples.clear()
+                    written.clear()
+                    done.clear()
+                self._write_sequential(jobs, out_root, dry_run, report, total, written, done)
         if report.aborted:
-            for _, rel, entry in todo:
-                if entry.status == "processed" and rel not in done:
+            for entry in report.entries:
+                if entry.status == "processed" and entry.rel_path not in done:
                     entry.status, entry.reason = "skipped", "abgebrochen"
         self._report_progress(total * 2, total * 2, "")
         if packed and not dry_run:
@@ -424,6 +423,122 @@ class FileRun:
             out_root.mkdir(parents=True, exist_ok=True)
             _write_text_atomic(out_root / REPORT_NAME, report.to_text(), "utf-8", "\n")
         return report, out_root
+
+    # ------------------------------------------------------------------
+    # Durchlauf 1 und 2, mit einem Kern oder parallel (siehe parallel.py)
+    # ------------------------------------------------------------------
+    def _learn_sequential(self, candidates, report: Report, total: int) -> list:
+        todo = []
+        for i, (src, rel, entry, encoding) in enumerate(candidates):
+            if self.cancel.is_set():
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            self._report_progress(i, total * 2, rel)
+            try:
+                entry.encoding = self._learn_file(src, encoding)
+                todo.append((src, rel, entry))
+            except _Cancelled:
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            except Exception as exc:  # noqa: BLE001
+                entry.status, entry.reason = "failed", safe_reason(exc)
+        return todo
+
+    def _learn_parallel(self, candidates, report: Report, total: int) -> list:
+        futures: dict = {}
+
+        def on_done(index, future):
+            futures[index] = future
+            self._report_progress(len(futures), total * 2, candidates[index][1])
+
+        jobs = [(i, (str(src), encoding)) for i, (src, _rel, _entry, encoding) in enumerate(candidates)]
+        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, None)
+        parallel.run_tasks(parallel._learn_task, jobs, parallel.worker_count(self.settings), initargs,
+                           self.cancel, on_done)
+        if self.cancel.is_set():
+            report.aborted = "vom Benutzer abgebrochen"
+        todo = []
+        # Platzhalter in fester Dateireihenfolge vergeben (wie mit einem Kern)
+        for i, (src, rel, entry, _encoding) in enumerate(candidates):
+            future = futures.get(i)
+            if future is None or future.cancelled():
+                continue
+            exc = future.exception()
+            if isinstance(exc, _Cancelled):
+                continue
+            if exc is not None:
+                entry.status, entry.reason = "failed", safe_reason(exc)
+                continue
+            used, values = future.result()
+            entry.encoding = used
+            for value, category in values:
+                self.sanitizer.mapping.placeholder_for(value, category)
+            todo.append((src, rel, entry))
+        return todo
+
+    def _write_sequential(self, jobs, out_root: Path, dry_run: bool, report: Report, total: int,
+                          written: set, done: set) -> None:
+        for i, (src, rel, entry, dest_rel) in enumerate(jobs):
+            if self.cancel.is_set():
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            self._report_progress(total + i, total * 2, rel)
+            try:
+                if dry_run:
+                    entry.counts = self._process_file(src, entry.encoding, report, None)
+                else:
+                    entry.counts = self._write_file(src, out_root / dest_rel, entry.encoding, report)
+                written.add(dest_rel)
+                done.add(rel)
+            except _Cancelled:
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            except Exception as exc:  # noqa: BLE001
+                entry.status, entry.reason = "failed", safe_reason(exc)
+
+    def _write_parallel(self, jobs, out_root: Path, dry_run: bool, report: Report, total: int,
+                        written: set, done: set) -> bool:
+        """Gibt False zurück, wenn der Durchlauf mit einem Kern wiederholt werden muss."""
+        blob = parallel.mapping_blob(self.sanitizer.mapping)
+        self._pass2_snapshot = parallel.pickle.loads(blob)
+        futures: dict = {}
+
+        def on_done(index, future):
+            futures[index] = future
+            self._report_progress(total + len(futures), total * 2, jobs[index][1])
+
+        tasks = []
+        for i, (src, _rel, entry, dest_rel) in enumerate(jobs):
+            dest = None if dry_run else str(out_root / dest_rel)
+            tasks.append((i, (str(src), dest, entry.encoding)))
+        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, blob)
+        parallel.run_tasks(parallel._write_task, tasks, parallel.worker_count(self.settings), initargs,
+                           self.cancel, on_done)
+        if self.cancel.is_set():
+            report.aborted = "vom Benutzer abgebrochen"
+        results = []
+        for i, (src, rel, entry, dest_rel) in enumerate(jobs):
+            future = futures.get(i)
+            if future is None or future.cancelled():
+                continue
+            exc = future.exception()
+            if isinstance(exc, _Cancelled):
+                continue
+            if exc is not None:
+                entry.status, entry.reason = "failed", safe_reason(exc)
+                continue
+            result = future.result()
+            if result is None:
+                return False
+            results.append((rel, entry, dest_rel, result))
+        for rel, entry, dest_rel, (counts, samples) in results:
+            entry.counts = counts
+            for sample in samples:
+                if len(report.samples) < MAX_SAMPLES and sample not in report.samples:
+                    report.samples.append(sample)
+            written.add(dest_rel)
+            done.add(rel)
+        return True
 
     # ------------------------------------------------------------------
     def _expand_archives(self, files, report: Report):
@@ -510,64 +625,94 @@ class FileRun:
         return names
 
     def _learn_file(self, src: Path, encoding: str) -> str:
-        """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
-        (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
-        s = self.settings
-
-        def handler(buffer: str, cut: int) -> int:
-            findings = self.sanitizer.learn(buffer, self.exclude)
-            ends = [f.end for f in findings if f.start < cut]
-            return max([cut] + ends)
-
-        for enc in _encoding_candidates(encoding):
-            try:
-                iter_segments(read_chunks(src, enc, s.chunk_size), s.chunk_size, s.chunk_overlap, handler, self.cancel)
-                return enc
-            except UnicodeDecodeError:
-                continue
-        raise UnicodeError("keine passende Kodierung")
+        return learn_file(self.sanitizer, src, encoding, self.settings, self.exclude, self.cancel)
 
     def _write_file(self, src: Path, dest: Path, encoding: str, report: Report) -> dict:
-        s = self.settings
-        if dest.resolve() == src.resolve():
-            raise RunError("Ausgabe würde Original überschreiben")  # pragma: no cover (durch resolve_output_dir verhindert)
-        out_encoding = output_encoding_for(encoding, s.output_encoding)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
-        try:
-            with os.fdopen(fd, "w", encoding=out_encoding, newline="") as out:
-                counts = self._process_file(src, encoding, report, out)
-            os.replace(tmp, dest)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-        return counts
+        return write_file(self.sanitizer, src, dest, encoding, self.settings, self.exclude, self.cancel,
+                          report.samples)
 
     def _process_file(self, src: Path, encoding: str, report: Report, out) -> dict:
-        """Durchlauf 2 für eine Datei: ersetzen, zählen und (wenn out gesetzt
-        ist) bereinigt schreiben. Gibt die Ersetzungen je Kategorie zurück."""
-        s = self.settings
-        newline = file_newline(src, encoding)
-        counts: dict = {}
+        return process_file(self.sanitizer, src, encoding, self.settings, self.exclude, self.cancel, out,
+                            report.samples)
 
-        def handler(buffer: str, cut: int) -> int:
-            findings = self.sanitizer.analyze(buffer, self.exclude)
-            keep = [f for f in findings if f.start < cut]
-            cut = max([cut] + [f.end for f in keep])
-            result = apply_replacements(buffer[:cut], keep, self.sanitizer.mapping)
-            for rep in result.replacements:
-                counts[rep.category] = counts.get(rep.category, 0) + 1
-            _collect_samples(result, report)
-            if out is not None:
-                out.write(restore_newlines(result.text, newline))
-            return cut
 
-        iter_segments(read_chunks(src, encoding, s.chunk_size), s.chunk_size, s.chunk_overlap, handler, self.cancel)
-        return counts
+# ----------------------------------------------------------------------
+# Eine Datei lernen / verarbeiten / schreiben. Freistehende Funktionen, damit
+# sie auch in den Worker-Prozessen (parallel.py) laufen.
+# ----------------------------------------------------------------------
 
+class NewValuesFound(Exception):
+    """Durchlauf 2 hat einen Wert gefunden, der in Durchlauf 1 fehlte (nur im
+    Parallelbetrieb relevant: die Datei wird dann im Hauptprozess neu bearbeitet)."""
+
+
+def learn_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None) -> str:
+    """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
+    (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
+
+    def handler(buffer: str, cut: int) -> int:
+        findings = sanitizer.learn(buffer, exclude)
+        ends = [f.end for f in findings if f.start < cut]
+        return max([cut] + ends)
+
+    for enc in _encoding_candidates(encoding):
+        try:
+            iter_segments(read_chunks(src, enc, settings.chunk_size), settings.chunk_size, settings.chunk_overlap,
+                          handler, cancel)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeError("keine passende Kodierung")
+
+
+def process_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None, out=None,
+                 samples: list | None = None) -> dict:
+    """Durchlauf 2 für eine Datei: ersetzen, zählen und (wenn out gesetzt
+    ist) bereinigt schreiben. Gibt die Ersetzungen je Kategorie zurück."""
+    newline = file_newline(src, encoding)
+    counts: dict = {}
+
+    def handler(buffer: str, cut: int) -> int:
+        findings = sanitizer.analyze(buffer, exclude)
+        keep = [f for f in findings if f.start < cut]
+        cut = max([cut] + [f.end for f in keep])
+        result = apply_replacements(buffer[:cut], keep, sanitizer.mapping)
+        for rep in result.replacements:
+            counts[rep.category] = counts.get(rep.category, 0) + 1
+        if samples is not None:
+            _collect_samples(result, samples)
+        if out is not None:
+            out.write(restore_newlines(result.text, newline))
+        return cut
+
+    iter_segments(read_chunks(src, encoding, settings.chunk_size), settings.chunk_size, settings.chunk_overlap,
+                  handler, cancel)
+    return counts
+
+
+def write_file(sanitizer, src: Path, dest: Path, encoding: str, settings, exclude=(), cancel=None,
+               samples: list | None = None, accept: Callable[[], bool] | None = None) -> dict:
+    """Schreibt die bereinigte Datei atomar. accept (optional) wird vor dem
+    Umbenennen gefragt; lehnt es ab, bleibt keine Ausgabe liegen und
+    NewValuesFound wird ausgelöst."""
+    if dest.resolve() == src.resolve():
+        raise RunError("Ausgabe würde Original überschreiben")  # pragma: no cover (durch resolve_output_dir verhindert)
+    out_encoding = output_encoding_for(encoding, settings.output_encoding)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
+    try:
+        with os.fdopen(fd, "w", encoding=out_encoding, newline="") as out:
+            counts = process_file(sanitizer, src, encoding, settings, exclude, cancel, out, samples)
+        if accept is not None and not accept():
+            raise NewValuesFound()
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return counts
 
 def check_clearable(out_root: Path) -> None:
     """Darf der Ausgabeordner geleert werden? Nur wenn er fehlt, leer ist oder
@@ -651,18 +796,18 @@ def _encoding_candidates(encoding: str) -> list[str]:
     return out
 
 
-def _collect_samples(result, report: Report) -> None:
-    if len(report.samples) >= MAX_SAMPLES or not result.replacements:
+def _collect_samples(result, samples: list) -> None:
+    if len(samples) >= MAX_SAMPLES or not result.replacements:
         return
     lines = result.text.split("\n")
     for rep in result.replacements:
-        if len(report.samples) >= MAX_SAMPLES:
+        if len(samples) >= MAX_SAMPLES:
             break
         line_no = result.text.count("\n", 0, rep.out_start)
         line = lines[line_no]
         sample = line if len(line) <= 200 else line[:200] + " …"
-        if sample not in report.samples:
-            report.samples.append(sample)
+        if sample not in samples:
+            samples.append(sample)
 
 
 def _write_text_atomic(path: Path, text: str, encoding: str, newline: str) -> None:

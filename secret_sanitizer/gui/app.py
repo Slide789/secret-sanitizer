@@ -860,6 +860,7 @@ class App(ctk.CTk, *_DND_BASES):
             ("output_encoding", "Ausgabekodierung (utf-8, utf-16, cp1252 … oder 'same' = wie Eingabe)"),
             ("max_file_size_mb", "Max. Dateigröße in MB (darüber Rückfrage)"),
             ("max_archive_mb", "Max. Größe eines Archivs entpackt, in MB (Schutz vor Zip-Bomben)"),
+            ("workers", "CPU-Kerne für Ordnerläufe (0 = automatisch, 1 = nur ein Kern)"),
             ("max_files_per_run", "Max. Dateien pro Lauf"),
             ("max_preview_chars", "Max. Zeichen für die farbige Vorschau"),
             ("chunk_size", "Blockgröße (Zeichen) für große Dateien"),
