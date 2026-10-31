@@ -1,5 +1,6 @@
 """Tests für die Kommandozeile und Sicherheitsprinzipien (offline, keine Werte in Ausgaben)."""
 
+import json
 import os
 import re
 import subprocess
@@ -28,6 +29,26 @@ class CliTests(SecretAssertions, TempDirTestCase):
         self.assertEqual(res.stdout.decode("utf-8"), "password=[PASSWORD_1] an [EMAIL_1]\n")
         self.assertIn("PASSWORD=1", res.stderr.decode("utf-8"))
         self.assertNoSecrets(res.stderr.decode("utf-8"))
+
+    def test_profile_export_and_use(self):
+        home = self.tmp / "home"
+        home.mkdir()
+        (home / "user_rules.json").write_text(json.dumps({
+            "rules": [{"id": "kunde", "name": "Kunde", "category": "CUSTOM", "pattern": r"KD-\d{6}"}],
+            "wordlists": [{"id": "user_company", "name": "F", "category": "COMPANY", "words": ["Fakefirma GmbH"]}],
+        }), encoding="utf-8")
+        exported = self.tmp / "team.json"
+        res = self.cli("--export-profile", str(exported))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("Fakefirma", exported.read_text(encoding="utf-8"))
+        res = self.cli("--export-profile", str(self.tmp / "mit.json"), "--with-wordlists")
+        self.assertIn("Fakefirma", (self.tmp / "mit.json").read_text(encoding="utf-8"))
+        # Profil statt eigener Regeln verwenden: eigene Wortliste fehlt, Profilregel greift
+        (home / "user_rules.json").unlink()
+        res = self.cli("-", "--profile", str(exported), stdin=b"KD-123456 bei Fakefirma GmbH")
+        self.assertEqual(res.stdout.decode(), "[CUSTOM_1] bei Fakefirma GmbH")
+        res = self.cli("-", "--profile", "gibtsnicht", stdin=b"x")
+        self.assertEqual(res.returncode, 2)
 
     def test_no_personal(self):
         res = self.cli("-", "--no-personal", stdin=f"an {S['email']}".encode())

@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import APP_NAME, APP_TITLE, APP_VERSION, MODES, load_settings, user_rules_path
 from .core.encoding import decode_bytes
 from .core.files import FileRun, RunError
+from .core import profiles
 from .core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES
 from .core.pipeline import Sanitizer, load_default_ruleset
 from .core.rules import load_ruleset, load_user_rules, merge_user_rules, slow_pattern_warnings
@@ -53,6 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", metavar="DATEI", help="Andere config.json verwenden.")
     p.add_argument("--rules", metavar="DATEI", help="Andere user_rules.json verwenden.")
     p.add_argument("--no-user-rules", action="store_true", help="Nur mitgelieferte Regeln verwenden.")
+    p.add_argument("--profile", metavar="NAME|DATEI",
+                   help="Regeln (und ggf. Modus/Kategorien) aus einem Profil statt der eigenen Regeln verwenden: "
+                        "Name eines in der GUI gespeicherten Profils oder Pfad zu einer Profildatei.")
+    p.add_argument("--export-profile", metavar="DATEI",
+                   help="Eigene Regeln, Allowlist, Modus und Kategorien als Profil exportieren und beenden.")
+    p.add_argument("--with-wordlists", action="store_true",
+                   help="Mit --export-profile: auch die Wortlisten exportieren (enthalten Namen im Klartext!).")
     p.add_argument("--output-encoding", metavar="KODIERUNG",
                    help="Kodierung der Ausgabedateien (Standard utf-8, 'same' = wie Eingabe).")
     p.add_argument("--exclude", metavar="MUSTER", action="append", default=[],
@@ -100,8 +108,24 @@ def list_categories() -> None:
                 print(f"  {cat.id:<14} {cat.description}")
 
 
+def _load_profile_arg(value: str, parser):
+    """--profile: Pfad zu einer Datei oder Name eines gespeicherten Profils."""
+    try:
+        path = Path(value)
+        if path.suffix.lower() == ".json" or path.exists():
+            return profiles.load_profile(path)
+        return profiles.load_named_profile(value)
+    except profiles.ProfileError as exc:
+        parser.error(f"--profile: {exc}")
+
+
 def make_sanitizer_from_args(args, parser) -> Sanitizer:
     settings = load_settings(Path(args.config) if args.config else None)
+    profile = _load_profile_arg(args.profile, parser) if args.profile else None
+    if profile and profile.settings:
+        settings.mode = profile.settings.get("mode", settings.mode)
+        settings.enabled_categories = {**settings.enabled_categories,
+                                       **profile.settings.get("enabled_categories", {})}
     if args.mode:
         settings.mode = args.mode
     if args.output_encoding:
@@ -129,6 +153,9 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
 
     if args.no_user_rules:
         ruleset = load_default_ruleset(include_user_rules=False)
+    elif profile is not None:
+        ruleset = merge_user_rules(load_ruleset(default_rules_path()), profile.rules)
+        ruleset.errors = list(ruleset.errors) + list(profile.warnings)
     elif args.rules:
         ruleset = load_ruleset(default_rules_path())
         merge_user_rules(ruleset, load_user_rules(Path(args.rules)))
@@ -221,12 +248,31 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
     return exit_code
 
 
+def export_profile_cmd(args) -> int:
+    user_rules = load_user_rules(Path(args.rules) if args.rules else user_rules_path())
+    if user_rules.errors:
+        for error in user_rules.errors:
+            _err(f"Warnung: {error}")
+    settings = load_settings(Path(args.config) if args.config else None)
+    path = Path(args.export_profile)
+    try:
+        profiles.export_profile(path, user_rules, path.stem, settings, include_wordlists=args.with_wordlists)
+    except OSError as exc:
+        _err(f"Fehler: Profil konnte nicht geschrieben werden ({type(exc).__name__}).")
+        return EXIT_USAGE
+    if not args.quiet:
+        _err(f"Profil exportiert: {path} ({'mit' if args.with_wordlists else 'ohne'} Wortlisten)")
+    return EXIT_OK
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.list_categories:
         list_categories()
         return EXIT_OK
+    if args.export_profile:
+        return export_profile_cmd(args)
     if args.gui or not args.inputs:
         from .gui import launch
         return launch()

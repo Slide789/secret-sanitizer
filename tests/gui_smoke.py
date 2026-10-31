@@ -159,6 +159,34 @@ def main() -> int:
     assert "10.20.30.40" in config.user_rules_path().read_text(encoding="utf-8")
     assert "Geheim99x" not in app.clean_box.get_text()
 
+    # 5d) Profile: Export ohne Wortlisten, Import mit Regel und Modus
+    import json as _json
+
+    from secret_sanitizer.core import profiles
+    from secret_sanitizer.gui import rule_editor as editor_module
+    export_path = TMP / "export.json"
+    editor_module.filedialog.asksaveasfilename = lambda **k: str(export_path)
+    app_module.messagebox.askyesno = lambda *a, **k: False      # Wortlisten nicht mitexportieren
+    ed.export_profile()
+    exported = export_path.read_text(encoding="utf-8")
+    assert "Fakefirma" not in exported and "TICKET" in exported, exported[:300]
+    app_module.messagebox.askyesno = lambda *a, **k: True
+    import_path = TMP / "import.json"
+    import_path.write_text(_json.dumps({
+        "type": profiles.PROFILE_TYPE, "version": 1, "name": "Smoke",
+        "rules": [{"id": "kunde", "name": "Kundennummer", "category": "CUSTOM", "pattern": r"KD-\d{6}"}],
+        "settings": {"mode": "loose"}}), encoding="utf-8")
+    assert ed._import(profiles.load_profile(import_path), merge=True)
+    pump(app, 1.0)
+    assert app.settings.mode == "loose" and app.mode_var.get() == "Locker"
+    assert {"kunde", "user_ticketnummer"} <= {r.id for r in ed.user_rules.rules}, [r.id for r in ed.user_rules.rules]
+    app.tabs.set("Text & Vorschau")
+    app._set_original("Kunde KD-123456", None)
+    pump(app, 1.0)
+    assert app.clean_box.get_text() == "Kunde [CUSTOM_1]", app.clean_box.get_text()
+    app._mode_changed("Streng")
+    pump(app, 0.3)
+
     # 6) Einstellungen speichern
     app.tabs.set("Einstellungen")
     app.setting_vars["max_preview_chars"].set("50")

@@ -23,6 +23,7 @@ import customtkinter as ctk
 
 from .. import config
 from ..config import APP_TITLE, APP_VERSION, MODE_LABELS, MODES, Settings, load_settings, save_settings
+from ..core.models import PERSONAL_CATEGORIES
 from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
                           save_sanitized_text)
 from ..core.archives import archive_kind
@@ -162,6 +163,20 @@ class App(ctk.CTk):
 
     def _categories_changed(self, values: dict) -> None:
         self.settings.enabled_categories = values
+        self._persist_settings()
+        self.schedule_preview(immediate=True)
+
+    def _apply_profile_settings(self, values: dict) -> None:
+        """Modus und Kategorien aus einem Profil übernehmen."""
+        if values.get("mode") in MODES:
+            self.settings.mode = values["mode"]
+            self.mode_var.set(MODE_LABELS[self.settings.mode])
+            self._update_mode_hint()
+        if isinstance(values.get("enabled_categories"), dict):
+            self.settings.enabled_categories = {**self.settings.enabled_categories, **values["enabled_categories"]}
+            for cat, var in self.categories.vars.items():
+                var.set(self.settings.is_category_enabled(cat))
+            self.categories.personal_var.set(all(self.categories.vars[c].get() for c in PERSONAL_CATEGORIES))
         self._persist_settings()
         self.schedule_preview(immediate=True)
 
@@ -771,7 +786,9 @@ class App(ctk.CTk):
     # Tab: Regeln
     # ------------------------------------------------------------------
     def _build_rules_tab(self, tab) -> None:
-        self.rule_editor = RuleEditor(tab, self.user_rules, on_save=self._save_user_rules, fg_color="transparent")
+        self.rule_editor = RuleEditor(tab, self.user_rules, on_save=self._save_user_rules,
+                                      get_settings=lambda: self.settings,
+                                      apply_settings=self._apply_profile_settings, fg_color="transparent")
         self.rule_editor.pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------

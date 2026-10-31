@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from tkinter import messagebox, ttk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 
+from ..core import profiles
 from ..core.models import CATEGORIES
 from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, redos_risk, rule_from_dict
 from ..detectors.wordlist_detector import compile_wordlist
@@ -23,10 +25,14 @@ REDOS_WARNING = ("Das Muster enthält verschachtelte Wiederholungen wie (a+)+ od
 
 
 class RuleEditor(ctk.CTkFrame):
-    def __init__(self, master, user_rules: UserRules, on_save, **kwargs) -> None:
+    def __init__(self, master, user_rules: UserRules, on_save, get_settings=None, apply_settings=None,
+                 **kwargs) -> None:
         super().__init__(master, **kwargs)
         self.user_rules = user_rules
         self.on_save = on_save
+        # Für Profile: aktuelle Einstellungen lesen bzw. Modus/Kategorien aus einem Profil übernehmen
+        self.get_settings = get_settings
+        self.apply_settings = apply_settings
         self._current: int | None = None  # Index der bearbeiteten Regel
         self._test_job = None
 
@@ -45,6 +51,7 @@ class RuleEditor(ctk.CTkFrame):
         bottom.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ctk.CTkButton(bottom, text="Alle Regeln speichern", command=self.save, width=220, height=36,
                       font=ctk.CTkFont(size=14, weight="bold")).pack(side="right")
+        self._build_profile_bar(bottom)
         self.status = ctk.CTkLabel(bottom, text="", anchor="w")
         self.status.pack(side="left", fill="x", expand=True)
 
@@ -323,6 +330,140 @@ class RuleEditor(ctk.CTkFrame):
                 entries.append(AllowEntry(value=line, description="In der GUI gepflegt."))
         self.user_rules.allowlist = entries
         return True
+
+    # ------------------------------------------------------------------
+    # Profile
+    # ------------------------------------------------------------------
+    def _build_profile_bar(self, bar) -> None:
+        buttons = [("Laden", self.load_selected_profile), ("Speichern als …", self.save_profile_as),
+                   ("Importieren …", self.import_profile_file), ("Exportieren …", self.export_profile)]
+        frame = ctk.CTkFrame(bar, fg_color="transparent")
+        frame.pack(side="right", padx=(0, 12))
+        ctk.CTkLabel(bar, text="Profil:", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=(12, 4))
+        self.var_profile = tk.StringVar(value="")
+        self.profile_box = ctk.CTkComboBox(frame, variable=self.var_profile, values=profiles.list_profiles() or [""],
+                                           width=170, state="readonly")
+        self.profile_box.pack(side="left", padx=(0, 6))
+        for text, command in buttons:
+            ctk.CTkButton(frame, text=text, width=110, fg_color="gray40", hover_color="gray30",
+                          command=command).pack(side="left", padx=2)
+
+    def _refresh_profiles(self, select: str = "") -> None:
+        names = profiles.list_profiles()
+        self.profile_box.configure(values=names or [""])
+        if select:
+            self.var_profile.set(select)
+
+    def _collect(self) -> bool:
+        """Übernimmt offene Eingaben (Wortliste, Allowlist) in self.user_rules."""
+        self._store_wordlist()
+        return self._store_allowlist()
+
+    def save_profile_as(self) -> None:
+        if not self._collect():
+            return
+        name = ctk.CTkInputDialog(text="Name des Profils (z. B. \"Kunde A\"):", title="Profil speichern").get_input()
+        if not name:
+            return
+        name = name.strip()
+        if not profiles.valid_profile_name(name):
+            messagebox.showerror("Profil", "Ungültiger Name. Erlaubt sind Buchstaben, Ziffern, Leerzeichen und "
+                                           "- _ . (max. 60 Zeichen).", parent=self)
+            return
+        if name in profiles.list_profiles() and not messagebox.askyesno(
+                "Profil", f"Profil \"{name}\" überschreiben?", parent=self):
+            return
+        settings = self.get_settings() if self.get_settings else None
+        try:
+            profiles.save_named_profile(name, self.user_rules, settings)
+        except (OSError, profiles.ProfileError) as exc:
+            messagebox.showerror("Profil", f"Speichern fehlgeschlagen ({type(exc).__name__}).", parent=self)
+            return
+        self._refresh_profiles(select=name)
+        self.status.configure(text=f"Profil gespeichert: {name}")
+
+    def load_selected_profile(self) -> None:
+        name = self.var_profile.get().strip()
+        if not name:
+            messagebox.showinfo("Profil", "Noch kein Profil gespeichert oder ausgewählt.", parent=self)
+            return
+        try:
+            profile = profiles.load_named_profile(name)
+        except profiles.ProfileError as exc:
+            messagebox.showerror("Profil", str(exc), parent=self)
+            return
+        self._import(profile)
+
+    def import_profile_file(self) -> None:
+        path = filedialog.askopenfilename(title="Profil importieren", parent=self,
+                                          filetypes=[("Profil (JSON)", "*.json"), ("Alle Dateien", "*.*")])
+        if not path:
+            return
+        try:
+            profile = profiles.load_profile(path)
+        except profiles.ProfileError as exc:
+            messagebox.showerror("Profil importieren", str(exc), parent=self)
+            return
+        self._import(profile)
+
+    def _import(self, profile, merge: bool | None = None) -> bool:
+        """Zeigt, was sich ändert, und übernimmt das Profil. merge=None: nachfragen."""
+        if not self._collect():
+            return False
+        info = profiles.summarize(self.user_rules, profile.rules)
+        lines = [f"Profil \"{profile.name}\":",
+                 f"  {info['new_rules']} neue und {info['changed_rules']} geänderte Regeln",
+                 f"  {info['new_words']} neue Wörter in Wortlisten",
+                 f"  {info['new_allow']} neue Allowlist-Einträge"]
+        if profile.settings:
+            lines.append("  setzt außerdem " + " und ".join(
+                {"mode": "den Modus", "enabled_categories": "die Kategorien"}[k] for k in profile.settings))
+        if profile.warnings:
+            lines += ["", "Hinweise:"] + [f"  - {w}" for w in profile.warnings[:8]]
+            if len(profile.warnings) > 8:
+                lines.append(f"  … und {len(profile.warnings) - 8} weitere")
+        if merge is None:
+            answer = messagebox.askyesnocancel(
+                "Profil übernehmen", "\n".join(lines) + "\n\nJa = mit den aktuellen Regeln zusammenführen\n"
+                                                        "Nein = aktuelle eigene Regeln ersetzen", parent=self)
+            if answer is None:
+                return False
+            merge = answer
+        self.user_rules = profiles.merge(self.user_rules, profile.rules) if merge else profile.rules
+        self._current = None
+        self._refresh_rule_list()
+        self._load_lists()
+        if profile.settings and self.apply_settings:
+            self.apply_settings(profile.settings)
+        ok = self.save()
+        if ok:
+            self.status.configure(text=f"Profil \"{profile.name}\" übernommen "
+                                       f"({'zusammengeführt' if merge else 'ersetzt'}).")
+        return ok
+
+    def export_profile(self) -> None:
+        if not self._collect():
+            return
+        path = filedialog.asksaveasfilename(title="Profil exportieren", parent=self, defaultextension=".json",
+                                            initialfile="profil.json", filetypes=[("Profil (JSON)", "*.json")])
+        if not path:
+            return
+        with_words = False
+        if any(w.words for w in self.user_rules.wordlists):
+            with_words = messagebox.askyesno(
+                "Wortlisten mitexportieren?",
+                "Die Wortlisten enthalten Firmen-, Host- und Personennamen im Klartext.\n\n"
+                "Nur mitexportieren, wenn die Datei in vertrauenswürdigen Händen bleibt.\n\nMitexportieren?",
+                default=messagebox.NO, parent=self)
+        settings = self.get_settings() if self.get_settings else None
+        try:
+            profiles.export_profile(path, self.user_rules, Path(path).stem, settings, with_words)
+        except OSError as exc:
+            messagebox.showerror("Profil exportieren", f"Speichern fehlgeschlagen ({type(exc).__name__}).",
+                                 parent=self)
+            return
+        self.status.configure(text=f"Profil exportiert{' (mit Wortlisten)' if with_words else ' (ohne Wortlisten)'}: "
+                                   f"{path}")
 
     def add_allow_entry(self, value: str) -> bool:
         """Übernimmt einen Wert (exakt) in die Allowlist und speichert alle Regeln.
