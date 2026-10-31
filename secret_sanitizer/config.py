@@ -79,6 +79,10 @@ class Settings:
     # Word/Excel/PowerPoint (.docx, .xlsx, .pptx) bereinigen; Bilder und eingebettete Objekte entfernen
     process_office: bool = True
     office_remove_media: bool = True
+    # PDF: Text herausziehen und als bereinigte .txt ausgeben (in eigenem Prozess mit Limits)
+    process_pdf: bool = True
+    pdf_timeout_s: int = 60
+    pdf_max_memory_mb: int = 1024
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:

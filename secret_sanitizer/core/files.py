@@ -34,11 +34,17 @@ from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
-from . import archives, merger, office, parallel
+from . import archives, merger, office, parallel, pdf
 from .replacer import apply_replacements
 
 REPORT_NAME = f"{APP_NAME}_bericht.txt"
 OFFICE_PREFIX = "office:"   # Pseudo-Kodierung für Office-Dokumente in FileEntry.encoding
+PDF_ENCODING = "pdf"        # Pseudo-Kodierung für PDFs (Ausgabe: <name>.pdf.txt)
+
+
+def _in_main_process(encoding: str) -> bool:
+    """Office und PDF bearbeitet immer der Hauptprozess (an ihrer Position in der Reihenfolge)."""
+    return encoding.startswith(OFFICE_PREFIX) or encoding == PDF_ENCODING
 MAX_SAMPLES = 12
 
 STATUS_LABELS = {"processed": "bearbeitet", "skipped": "übersprungen", "failed": "fehlgeschlagen"}
@@ -155,7 +161,7 @@ def _now() -> str:
 def safe_reason(exc: BaseException) -> str:
     """Allgemeine Fehlerbeschreibung OHNE str(exc) (könnte Inhalte enthalten)."""
     name = type(exc).__name__
-    if isinstance(exc, (office.OfficeError, archives.ArchiveError)):
+    if isinstance(exc, (office.OfficeError, archives.ArchiveError, pdf.PdfError)):
         return str(exc)   # diese Meldungen enthalten nie Inhalte
     if isinstance(exc, PermissionError):
         return "keine Berechtigung"
@@ -327,9 +333,11 @@ class FileRun:
         ist oder von einem früheren Lauf stammt, siehe clear_output_dir).
         dry_run: nur prüfen und zählen, nichts schreiben (auch keinen Bericht)."""
         self._staging: Path | None = None
+        self._pdf_texts: dict = {}   # PDF-Texte zwischen den Durchläufen, nur im Speicher
         try:
             return self._run(input_path, output_dir, write_report, clean_output, dry_run)
         finally:
+            self._pdf_texts = {}
             # Entpackte Archiv-Inhalte (Originale!) immer wieder löschen
             if self._staging is not None:
                 shutil.rmtree(self._staging, ignore_errors=True)
@@ -368,7 +376,15 @@ class FileRun:
                 if self.settings.process_office and office.is_macro_document(rel):
                     entry.status, entry.reason = "skipped", "Dokument mit Makros (nicht unterstützt)"
                     continue
-                encoding = f"{OFFICE_PREFIX}{kind}" if kind else sniff(src)
+                if kind:
+                    encoding = f"{OFFICE_PREFIX}{kind}"
+                elif pdf.is_pdf(rel):
+                    if not self.settings.process_pdf:
+                        entry.status, entry.reason = "skipped", "PDF (Verarbeitung ausgeschaltet)"
+                        continue
+                    encoding = PDF_ENCODING
+                else:
+                    encoding = sniff(src)
                 if encoding is None:
                     entry.status, entry.reason = "skipped", "Binärdatei"
                     continue
@@ -402,7 +418,8 @@ class FileRun:
             clear_output_dir(out_root)
             report.cleaned = True
         if not report.aborted and todo:
-            jobs = [(src, rel, entry, dest_rels.get(rel, rel)) for src, rel, entry in todo]
+            jobs = [(src, rel, entry, dest_rels.get(rel, rel) + (".txt" if entry.encoding == PDF_ENCODING else ""))
+                    for src, rel, entry in todo]
             redo = use_parallel and not self._write_parallel(jobs, out_root, dry_run, report, total, written, done)
             if not use_parallel or redo:
                 if redo:
@@ -450,6 +467,8 @@ class FileRun:
             except _Cancelled:
                 report.aborted = "vom Benutzer abgebrochen"
                 break
+            except pdf.PdfSkipped as exc:
+                entry.status, entry.reason = "skipped", str(exc)
             except Exception as exc:  # noqa: BLE001
                 entry.status, entry.reason = "failed", safe_reason(exc)
         return todo
@@ -462,7 +481,7 @@ class FileRun:
             self._report_progress(len(futures), total * 2, candidates[index][1])
 
         jobs = [(i, (str(src), encoding)) for i, (src, _rel, _entry, encoding) in enumerate(candidates)
-                if not encoding.startswith(OFFICE_PREFIX)]
+                if not _in_main_process(encoding)]
         initargs = (self.settings, self.sanitizer.ruleset, self.exclude, None)
         parallel.run_tasks(parallel._learn_task, jobs, parallel.worker_count(self.settings), initargs,
                            self.cancel, on_done)
@@ -471,10 +490,12 @@ class FileRun:
         todo = []
         # Platzhalter in fester Dateireihenfolge vergeben (wie mit einem Kern)
         for i, (src, rel, entry, encoding) in enumerate(candidates):
-            if encoding.startswith(OFFICE_PREFIX) and not report.aborted:
-                try:   # Office-Dokumente lernt der Hauptprozess, an ihrer Position in der Reihenfolge
+            if _in_main_process(encoding) and not report.aborted:
+                try:   # Office und PDF lernt der Hauptprozess, an ihrer Position in der Reihenfolge
                     self._learn_file(src, encoding)
                     todo.append((src, rel, entry))
+                except pdf.PdfSkipped as exc:
+                    entry.status, entry.reason = "skipped", str(exc)
                 except Exception as exc:  # noqa: BLE001
                     entry.status, entry.reason = "failed", safe_reason(exc)
                 continue
@@ -524,7 +545,7 @@ class FileRun:
 
         tasks = []
         for i, (src, _rel, entry, dest_rel) in enumerate(jobs):
-            if entry.encoding.startswith(OFFICE_PREFIX):
+            if _in_main_process(entry.encoding):
                 continue
             dest = None if dry_run else str(out_root / dest_rel)
             tasks.append((i, (str(src), dest, entry.encoding)))
@@ -536,7 +557,7 @@ class FileRun:
         results = []
         office_jobs = []
         for i, (src, rel, entry, dest_rel) in enumerate(jobs):
-            if entry.encoding.startswith(OFFICE_PREFIX):
+            if _in_main_process(entry.encoding):
                 office_jobs.append((src, rel, entry, dest_rel))
                 continue
             future = futures.get(i)
@@ -559,7 +580,7 @@ class FileRun:
                     report.samples.append(sample)
             written.add(dest_rel)
             done.add(rel)
-        # Office-Dokumente im Hauptprozess; ein neuer Wert hier -> wie oben alles wiederholen
+        # Office und PDF im Hauptprozess; ein neuer Wert hier -> wie oben alles wiederholen
         before = len(self.sanitizer.mapping._originals)
         for src, rel, entry, dest_rel in office_jobs:
             if self.cancel.is_set():
@@ -661,6 +682,12 @@ class FileRun:
         if encoding.startswith(OFFICE_PREFIX):
             office.process_document(self.sanitizer, src, self.settings, self.exclude, learn=True)
             return encoding
+        if encoding == PDF_ENCODING:
+            # Text nur einmal herausziehen; bis Durchlauf 2 im Speicher (nie auf der Festplatte)
+            text = pdf.extract_text(src, self.settings)
+            self._pdf_texts[str(src)] = text
+            learn_text(self.sanitizer, text, self.settings, self.exclude, self.cancel)
+            return encoding
         return learn_file(self.sanitizer, src, encoding, self.settings, self.exclude, self.cancel)
 
     def _process_one(self, src: Path, entry: FileEntry, dest: Path | None, report: Report) -> None:
@@ -671,10 +698,34 @@ class FileRun:
             for sample in result.samples:
                 if len(report.samples) < MAX_SAMPLES and sample not in report.samples:
                     report.samples.append(sample)
+        elif entry.encoding == PDF_ENCODING:
+            text = self._pdf_texts.get(str(src))
+            if text is None:
+                text = pdf.extract_text(src, self.settings)
+            entry.counts = self._write_text(text, dest, report)
         elif dest is None:
             entry.counts = self._process_file(src, entry.encoding, report, None)
         else:
             entry.counts = self._write_file(src, dest, entry.encoding, report)
+
+    def _write_text(self, text: str, dest: Path | None, report: Report) -> dict:
+        """Bereinigt Text aus dem Speicher und schreibt ihn atomar nach dest (UTF-8)."""
+        if dest is None:
+            return process_text(self.sanitizer, text, self.settings, self.exclude, self.cancel, None, report.samples)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as out:
+                counts = process_text(self.sanitizer, text, self.settings, self.exclude, self.cancel, out,
+                                      report.samples)
+            os.replace(tmp, dest)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return counts
 
     def _write_file(self, src: Path, dest: Path, encoding: str, report: Report) -> dict:
         return write_file(self.sanitizer, src, dest, encoding, self.settings, self.exclude, self.cancel,
@@ -695,30 +746,16 @@ class NewValuesFound(Exception):
     Parallelbetrieb relevant: die Datei wird dann im Hauptprozess neu bearbeitet)."""
 
 
-def learn_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None) -> str:
-    """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
-    (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
-
+def _learn_chunks(sanitizer, chunks, settings, exclude, cancel) -> None:
     def handler(buffer: str, cut: int) -> int:
         findings = sanitizer.learn(buffer, exclude)
         ends = [f.end for f in findings if f.start < cut]
         return max([cut] + ends)
 
-    for enc in _encoding_candidates(encoding):
-        try:
-            iter_segments(read_chunks(src, enc, settings.chunk_size), settings.chunk_size, settings.chunk_overlap,
-                          handler, cancel)
-            return enc
-        except UnicodeDecodeError:
-            continue
-    raise UnicodeError("keine passende Kodierung")
+    iter_segments(chunks, settings.chunk_size, settings.chunk_overlap, handler, cancel)
 
 
-def process_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None, out=None,
-                 samples: list | None = None) -> dict:
-    """Durchlauf 2 für eine Datei: ersetzen, zählen und (wenn out gesetzt
-    ist) bereinigt schreiben. Gibt die Ersetzungen je Kategorie zurück."""
-    newline = file_newline(src, encoding)
+def _process_chunks(sanitizer, chunks, newline: str, settings, exclude, cancel, out, samples) -> dict:
     counts: dict = {}
 
     def handler(buffer: str, cut: int) -> int:
@@ -734,9 +771,45 @@ def process_file(sanitizer, src: Path, encoding: str, settings, exclude=(), canc
             out.write(restore_newlines(result.text, newline))
         return cut
 
-    iter_segments(read_chunks(src, encoding, settings.chunk_size), settings.chunk_size, settings.chunk_overlap,
-                  handler, cancel)
+    iter_segments(chunks, settings.chunk_size, settings.chunk_overlap, handler, cancel)
     return counts
+
+
+def _text_chunks(text: str, size: int) -> Iterator[str]:
+    for i in range(0, len(text), size):
+        yield text[i:i + size]
+
+
+def learn_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None) -> str:
+    """Durchlauf 1. Gibt die tatsächlich verwendete Kodierung zurück
+    (Wechsel auf cp1252, falls UTF-8 erst spät im File ungültig wird)."""
+    for enc in _encoding_candidates(encoding):
+        try:
+            _learn_chunks(sanitizer, read_chunks(src, enc, settings.chunk_size), settings, exclude, cancel)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeError("keine passende Kodierung")
+
+
+def learn_text(sanitizer, text: str, settings, exclude=(), cancel=None) -> None:
+    """Durchlauf 1 für Text aus dem Speicher (z. B. aus einer PDF)."""
+    _learn_chunks(sanitizer, _text_chunks(text, settings.chunk_size), settings, exclude, cancel)
+
+
+def process_file(sanitizer, src: Path, encoding: str, settings, exclude=(), cancel=None, out=None,
+                 samples: list | None = None) -> dict:
+    """Durchlauf 2 für eine Datei: ersetzen, zählen und (wenn out gesetzt
+    ist) bereinigt schreiben. Gibt die Ersetzungen je Kategorie zurück."""
+    return _process_chunks(sanitizer, read_chunks(src, encoding, settings.chunk_size), file_newline(src, encoding),
+                           settings, exclude, cancel, out, samples)
+
+
+def process_text(sanitizer, text: str, settings, exclude=(), cancel=None, out=None,
+                 samples: list | None = None) -> dict:
+    """Durchlauf 2 für Text aus dem Speicher (\n-Zeilenenden)."""
+    return _process_chunks(sanitizer, _text_chunks(text, settings.chunk_size), "\n", settings, exclude, cancel,
+                           out, samples)
 
 
 def write_file(sanitizer, src: Path, dest: Path, encoding: str, settings, exclude=(), cancel=None,

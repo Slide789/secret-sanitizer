@@ -37,6 +37,7 @@ from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_re
                           save_sanitized_text)
 from ..core.archives import archive_kind
 from ..core.office import office_kind
+from ..core.pdf import is_pdf
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
@@ -523,9 +524,11 @@ class App(ctk.CTk, *_DND_BASES):
         # Reiter "Dateien & Ordner" bereinigen
         is_archive = self.settings.process_archives and archive_kind(path.name)
         is_office = self.settings.process_office and office_kind(path.name)
-        if is_archive or is_office:
+        is_pdf_file = self.settings.process_pdf and is_pdf(path.name)
+        if is_archive or is_office or is_pdf_file:
             what = ("Archive werden entpackt, bereinigt und wieder eingepackt." if is_archive else
-                    "Office-Dokumente werden direkt bereinigt (Layout bleibt erhalten).")
+                    "Office-Dokumente werden direkt bereinigt (Layout bleibt erhalten)." if is_office else
+                    "Aus PDFs wird der Text gelesen und als bereinigte .txt-Datei gespeichert.")
             if messagebox.askyesno("Datei bereinigen", what + "\nJetzt bereinigen und in den Ausgabeordner "
                                                               "schreiben?", parent=self):
                 self.tabs.set("Dateien & Ordner")
@@ -867,6 +870,8 @@ class App(ctk.CTk, *_DND_BASES):
             ("max_file_size_mb", "Max. Dateigröße in MB (darüber Rückfrage)"),
             ("max_archive_mb", "Max. Größe eines Archivs entpackt, in MB (Schutz vor Zip-Bomben)"),
             ("workers", "CPU-Kerne für Ordnerläufe (0 = automatisch, 1 = nur ein Kern)"),
+            ("pdf_timeout_s", "Zeitlimit je PDF in Sekunden"),
+            ("pdf_max_memory_mb", "Speicherlimit beim Lesen einer PDF, in MB"),
             ("max_files_per_run", "Max. Dateien pro Lauf"),
             ("max_preview_chars", "Max. Zeichen für die farbige Vorschau"),
             ("chunk_size", "Blockgröße (Zeichen) für große Dateien"),
@@ -890,7 +895,9 @@ class App(ctk.CTk, *_DND_BASES):
         self.bool_vars: dict[str, tk.BooleanVar] = {}
         for key, label in (("process_office", "Word, Excel, PowerPoint (.docx, .xlsx, .pptx) bereinigen"),
                            ("office_remove_media", "Bilder und eingebettete Objekte aus Office-Dokumenten entfernen "
-                                                   "(empfohlen: Bilder können nicht geprüft werden)")):
+                                                   "(empfohlen: Bilder können nicht geprüft werden)"),
+                           ("process_pdf", "PDF: Text lesen und als bereinigte .txt ausgeben (gescannte PDFs ohne Text "
+                                           "werden übersprungen)")):
             var = tk.BooleanVar(value=getattr(self.settings, key))
             self.bool_vars[key] = var
             ctk.CTkCheckBox(scroll, text=label, variable=var,
