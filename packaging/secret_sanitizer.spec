@@ -82,7 +82,7 @@ cli = Analysis(
     [os.path.join(SPECPATH, "launcher_cli.py")],
     pathex=[ROOT],
     datas=RULES,
-    excludes=EXCLUDES + ["tkinter", "customtkinter", "_tkinter", "darkdetect", "PIL"],
+    excludes=EXCLUDES + ["tkinter", "customtkinter", "_tkinter", "darkdetect", "PIL", "tkinterdnd2"],
     noarchive=False,
 )
 cli_pyz = PYZ(cli.pure)

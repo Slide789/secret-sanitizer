@@ -58,9 +58,10 @@ Voraussetzung: **Python 3.10 oder neuer**.
    .venv\Scripts\activate
    ```
    (Linux/macOS: `python3 -m venv .venv` und `source .venv/bin/activate`)
-4. Abhängigkeiten installieren. Das ist nur `customtkinter`, und nur die Oberfläche braucht es:
+4. Abhängigkeiten installieren: `customtkinter` für die Oberfläche, `tkinterdnd2` für Drag & Drop und `pypdf`
+   für PDFs. Alle sind fest angepinnt, und `pip` prüft jedes Paket gegen die SHA-256-Prüfsumme in der Datei:
    ```bat
-   pip install -r requirements.txt
+   pip install --require-hashes -r requirements.txt
    ```
 5. Starten:
    ```bat
@@ -69,7 +70,8 @@ Voraussetzung: **Python 3.10 oder neuer**.
    Ohne Argumente startet die Oberfläche, mit Argumenten die Kommandozeile (`python -m secret_sanitizer --help`).
 
 Erkennung, Regeln und Kommandozeile kommen **ohne Zusatzpakete** aus. Für reine Kommandozeilen-Nutzung kannst du
-Schritt 4 also überspringen.
+Schritt 4 also überspringen. Ohne `pypdf` werden PDFs übersprungen, ohne `tkinterdnd2` gibt es kein Drag & Drop.
+Zur Laufzeit lädt das Programm **nie** etwas aus dem Internet nach; die Pakete stecken in der .exe.
 
 ## 3. Die .exe selbst bauen
 
@@ -81,8 +83,9 @@ läuft. Ein Build unter Linux ergibt keine .exe.
    ```bat
    build_exe.bat
    ```
-   Das Skript legt eine eigene Build-Umgebung `.venv-build` an, installiert `customtkinter` und `pyinstaller`,
-   lässt alle Tests laufen und baut danach:
+   Das Skript legt eine eigene Build-Umgebung `.venv-build` an, installiert die Pakete aus
+   `requirements-build.txt` (nur mit geprüften Prüfsummen, `--require-hashes`), lässt alle Tests laufen und baut
+   danach:
    - `dist\secret_sanitizer.exe`: Oberfläche (ohne Konsolenfenster)
    - `dist\secret_sanitizer_cli.exe`: Kommandozeile
 3. Danach auf einem **sauberen Windows-Rechner ohne Python** testen: die .exe starten, Text einfügen, Ordner
@@ -110,8 +113,8 @@ und rechts die bereinigte Fassung, unten die Trefferliste und der Kopier-Button.
 
 ### Reiter „Text & Vorschau“
 
-1. Text in das linke Feld **„Original“** einfügen (Strg+V oder „Aus Zwischenablage einfügen“) oder über
-   **„Datei öffnen“** eine Textdatei laden.
+1. Text in das linke Feld **„Original“** einfügen (Strg+V oder „Aus Zwischenablage einfügen“), über
+   **„Datei öffnen“** eine Textdatei laden oder die Datei einfach **ins Fenster ziehen** (Drag & Drop).
 2. Rechts erscheint sofort die **bereinigte Fassung**. Die Treffer sind in beiden Feldern **farbig nach
    Kategorie** markiert.
 3. Unten steht die **Trefferliste**: ein Eintrag pro ersetztem Wert, mit Platzhalter, Kategorie, gekürztem
@@ -130,7 +133,12 @@ und rechts die bereinigte Fassung, unten die Trefferliste und der Kopier-Button.
 Ab 50 000 Zeichen läuft die Analyse im Hintergrund, das Fenster bleibt dabei bedienbar. Sehr große Texte
 (mehr als `max_preview_chars` Zeichen, Standard 200 000) zeigt das Tool ohne farbige Vorschau, weil das Textfeld
 sonst sehr langsam wird. Stattdessen gibt es eine Zusammenfassung mit Stichproben. Kopieren funktioniert
-trotzdem. Ein Archiv (`.zip`, `.gz` …), das hier geöffnet wird, wird direkt als Dateilauf bereinigt.
+trotzdem. Ein Archiv (`.zip`, `.gz` …), ein Office-Dokument oder eine PDF, das hier geöffnet oder hineingezogen
+wird, wird direkt als Dateilauf bereinigt.
+
+**Drag & Drop**: Eine Textdatei landet in der Vorschau, ein Ordner im Reiter „Dateien & Ordner“. Zieht man eine
+Datei auf den Reiter „Dateien & Ordner“, wird sie dort als Eingabe übernommen. Bitte immer nur ein Element
+ablegen (mehrere Dateien am besten in einen Ordner legen).
 
 ### Reiter „Dateien & Ordner“
 
@@ -154,9 +162,24 @@ trotzdem. Ein Archiv (`.zip`, `.gz` …), das hier geöffnet wird, wird direkt a
 9. **Archive** (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) werden entpackt, bereinigt und wieder eingepackt
    (Häkchen „Archive bereinigen“, Standard an). Binäre oder verschlüsselte Einträge fehlen im neuen Archiv und
    stehen im Bericht.
+10. **Word, Excel, PowerPoint** (`.docx`, `.xlsx`, `.pptx`) werden direkt bereinigt, Layout und Formatierung
+    bleiben erhalten. Bereinigt werden Texte, Tabellen, Kopf-/Fußzeilen, Fußnoten, Textfelder, Zellen, Formeln,
+    Folien, Notizen, Diagrammbeschriftungen, Kommentare, Alternativtexte, Link-Ziele und Metadaten. Außerdem:
+    - **Nachverfolgte Änderungen werden angenommen** (gelöschter Text steckt sonst weiter in der Datei),
+    - **Autorennamen** (Dokument, Kommentare, Änderungen) werden geleert,
+    - **Bilder und eingebettete Objekte werden entfernt**, weil ihr Inhalt nicht geprüft werden kann (z. B. ein
+      Screenshot mit Passwort). Abschaltbar im Reiter „Einstellungen“; der Bericht nennt die Anzahl.
+    - Dokumente mit Makros (`.docm`, `.xlsm`, `.pptm`) werden übersprungen.
+    - Excel: Ein bereinigter Blattname wird zu einem gültigen Namen wie `(HOSTNAME_1)`; Formeln, Druckbereiche
+      und Diagramme verweisen auf den neuen Namen.
+11. **PDFs**: Der Text wird gelesen und als bereinigte **`<name>.pdf.txt`** gespeichert (die PDF selbst wird
+    nicht ausgegeben). Gescannte PDFs ohne Text und PDFs mit Kennwort werden übersprungen.
+12. **Mehrere CPU-Kerne**: Ab 4 Dateien und 4 MB werden die Dateien parallel bearbeitet (Einstellung
+    „CPU-Kerne“, Standard automatisch). Das Ergebnis ist exakt dasselbe wie mit einem Kern; bei typischen Logs
+    ist es etwa 4-mal so schnell (8 Kerne). Der Bericht nennt die Anzahl der Kerne.
 
-Bei einem Ordnerlauf bekommt derselbe Wert **in allen Dateien denselben Platzhalter**, auch in Archiven. Die
-Platzhalter-Nummern sind über den ganzen Lauf fortlaufend.
+Bei einem Ordnerlauf bekommt derselbe Wert **in allen Dateien denselben Platzhalter**, auch in Archiven,
+Office-Dokumenten und PDFs. Die Platzhalter-Nummern sind über den ganzen Lauf fortlaufend.
 
 ### Reiter „Antwort zurückübersetzen“
 
@@ -182,11 +205,23 @@ standardmäßig UTF-8.
 - **Allowlist**: Einträge, die **nie** ersetzt werden, einer pro Zeile. Mit `re:` am Anfang ist der Eintrag ein
   regulärer Ausdruck.
 - **„Alle Regeln speichern“** aktiviert die Änderungen.
+- **Profile** (Leiste unten): Mehrere Regelsätze speichern und wechseln, z. B. „Kunde A“ und „Windows-Logs“.
+  - **Speichern als …** legt das aktuelle Profil im Konfigurationsordner ab (mit Wortlisten),
+    **Laden** übernimmt ein gespeichertes Profil.
+  - **Exportieren …** schreibt eine Profildatei zum Weitergeben, z. B. an Kollegen. Die Wortlisten enthalten
+    Firmen- und Personennamen im Klartext und werden darum **nur auf Nachfrage** mitexportiert.
+  - **Importieren …** liest eine Profildatei. Vorher zeigt das Tool, was sich ändert (neue/geänderte Regeln,
+    neue Wörter, Allowlist), und fragt: **Zusammenführen** oder **Ersetzen**. Ungültige Einträge und
+    möglicherweise langsame Muster werden gemeldet und nicht übernommen bzw. markiert.
+  - Profile enthalten nur Regeln, Wortlisten, Allowlist sowie Modus und Kategorien, **keine Pfade oder
+    Befehle**.
 
 ### Reiter „Einstellungen“
 
 Hier lassen sich alle Werte aus `config.json` bearbeiten: Ausgabeordner, Ausgabekodierung, Limits,
-Blockgröße, Platzhalterstil, Ausschlussmuster, Schwellen der Modi und Entropie-Schwellen.
+Blockgröße, Platzhalterstil, Ausschlussmuster, CPU-Kerne, PDF-Limits, Schwellen der Modi und Entropie-Schwellen.
+Häkchen schalten die Verarbeitung von Office-Dokumenten und PDFs sowie das Entfernen von Bildern aus
+Office-Dokumenten ein und aus.
 
 ## 5. Kommandozeile
 
@@ -225,6 +260,11 @@ Wichtige Optionen (alle siehe `--help`):
 | `--clean` | Ausgabeordner vorher leeren (nur wenn er von einem früheren Lauf stammt) |
 | `--sanitize-filenames` | auch Ordner- und Dateinamen bereinigen |
 | `--no-archives` | Archive nicht entpacken, sondern wie Binärdateien überspringen |
+| `--no-office` / `--keep-office-media` | Office-Dokumente nicht bereinigen / Bilder darin behalten |
+| `--no-pdf` | PDFs nicht lesen |
+| `--workers N` | CPU-Kerne für Ordnerläufe (Standard automatisch, `1` = nur ein Kern) |
+| `--profile NAME\|DATEI` | Regeln (und ggf. Modus/Kategorien) aus einem Profil statt der eigenen Regeln |
+| `--export-profile DATEI` | eigene Regeln als Profil exportieren (mit `--with-wordlists` inkl. Wortlisten) |
 | `--config DATEI`, `--rules DATEI` | andere config.json / user_rules.json |
 | `--no-user-rules` | nur mitgelieferte Regeln |
 
@@ -294,7 +334,12 @@ Die Einstellungen liegen im Benutzerordner, nicht im Programmordner:
 | `exclude_patterns` | `.git`, `node_modules`, `*_sanitized` … | Ordner/Dateien im Ordnerlauf überspringen (fnmatch auf Name oder relativen Pfad) |
 | `sanitize_filenames` | `false` | auch Ordner- und Dateinamen bereinigen |
 | `process_archives` | `true` | `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz` entpacken, bereinigen, wieder einpacken |
-| `max_archive_mb` | `500` | Obergrenze für den entpackten Inhalt eines Archivs (Schutz vor Zip-Bomben) |
+| `max_archive_mb` | `500` | Obergrenze für den entpackten Inhalt eines Archivs oder Office-Dokuments (Schutz vor Zip-Bomben) |
+| `workers` | `0` | CPU-Kerne für Ordnerläufe: `0` = automatisch (Kerne − 1, höchstens 8), `1` = nur ein Kern |
+| `process_office` | `true` | `.docx`, `.xlsx`, `.pptx` bereinigen |
+| `office_remove_media` | `true` | Bilder und eingebettete Objekte aus Office-Dokumenten entfernen |
+| `process_pdf` | `true` | Text aus PDFs als bereinigte `.pdf.txt` ausgeben |
+| `pdf_timeout_s` / `pdf_max_memory_mb` | `60` / `1024` | Zeit- und Speicherlimit beim Lesen einer PDF |
 
 Eigene Regeln am besten in der Oberfläche anlegen (Reiter „Regeln“). Das Format von `user_rules.json`:
 
@@ -331,6 +376,15 @@ Standardregel abschalten.
   Programm geöffnet ist. Beim Schließen wird es verworfen.
 - **Archive** werden in einen Temp-Ordner entpackt, der nach dem Lauf immer gelöscht wird, auch bei Fehlern
   oder Abbruch. Pfade wie `../` im Archiv werden abgelehnt, Größen- und Anzahl-Limits schützen vor Zip-Bomben.
+- **Office-Dokumente** werden auf Textebene bearbeitet, ohne XML-Parser: Es werden keine Entitäten
+  expandiert, Dateien mit `DOCTYPE` werden abgelehnt. Bliebe nach dem Entfernen eines Bildes ein Verweis
+  darauf übrig, wird lieber gar keine Ausgabe geschrieben als ein beschädigtes Dokument.
+- **PDFs** werden in einem eigenen Prozess gelesen, mit Zeitlimit und hartem Speicherlimit (Windows:
+  Job-Objekt). Eine präparierte PDF kann das Programm also weder aufhängen noch den Speicher füllen. Der
+  gelesene Text bleibt im Arbeitsspeicher und landet nie in einer Temp-Datei.
+- **Mehrere CPU-Kerne**: Werte wandern nur über interne Pipes zwischen den Prozessen, nie über die Festplatte.
+- **Profile** enthalten nur Daten (keine Pfade, keine Befehle) und werden beim Import streng geprüft.
+- **Abhängigkeiten** sind mit SHA-256-Prüfsummen angepinnt; ein manipuliertes Paket bricht die Installation ab.
 - **Originaldateien werden nie verändert.** Ausgaben landen in einem separaten Ordner. Der Ausgabeordner darf
   nicht der Eingabeordner oder ein übergeordneter Ordner sein. Ausgabedateien werden erst vollständig
   geschrieben und dann umbenannt, halbe Dateien bleiben nicht liegen.
@@ -352,13 +406,20 @@ Standardregel abschalten.
   auch wenn die Wortliste „Groß/klein ignorieren“ ausgeschaltet hat. Die Option wirkt also nur auf die
   Erkennung.
 - Dateien mit **gemischten** Zeilenenden werden einheitlich mit dem überwiegenden Zeilenende geschrieben.
-- **Tempo**: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool etwa 0,2–0,5 MB pro Sekunde,
-  weil jede Datei zweimal gelesen wird (erst lernen, dann ersetzen). Große Ordner brauchen also etwas Zeit.
-  Der Fortschritt wird angezeigt, abbrechen ist möglich.
-- Office-Dateien (`.docx`, `.xlsx`) und PDFs werden **nicht** verarbeitet, ebenso Archive in Archiven.
-  Binärdateien werden übersprungen und im Bericht aufgeführt.
+- **Tempo**: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool mit einem Kern etwa
+  0,2–0,5 MB pro Sekunde, weil jede Datei zweimal gelesen wird (erst lernen, dann ersetzen); mit mehreren Kernen
+  entsprechend mehr. Office-Dokumente und PDFs werden immer im Hauptprozess bearbeitet. Der Fortschritt wird
+  angezeigt, abbrechen ist möglich.
+- Archive in Archiven, alte Office-Formate (`.doc`, `.xls`, `.ppt`), OpenDocument (`.odt` …) und Bilder werden
+  **nicht** verarbeitet. Binärdateien werden übersprungen und im Bericht aufgeführt.
+- **Office**: Bilder werden entfernt, nicht geprüft (keine Texterkennung). Eine Formel, die sich auf einen
+  bereinigten Wert verlässt (z. B. ein Passwort als Vergleichswert), rechnet danach mit dem Platzhalter. Ein
+  Hinweis wie „Passwort“ in einer Tabellenzelle und der Wert in der Nachbarzelle werden nicht als Paar erkannt
+  (nur innerhalb einer Zelle/Zeile, z. B. „Passwort: …“).
+- **PDF**: Keine Texterkennung (OCR) für gescannte PDFs. Die Reihenfolge des Textes folgt der PDF und kann bei
+  mehrspaltigem Layout ungewohnt sein.
 - Telefonnummern werden nur mit Vorwahl und Trennzeichen erkannt (`030 12345678`), nicht als reine Ziffernfolge.
-- Drag-and-Drop ist für eine spätere Version geplant.
+- Drag & Drop nimmt immer nur ein Element auf einmal an.
 - Eigene reguläre Ausdrücke können bei ungeschickter Formulierung sehr langsam sein (z. B. `(a+)+`). Die
   Warnung des Editors ist eine Heuristik und findet die typischen, nicht alle Fälle.
 - Die Oberfläche braucht Tk 8.6, wie es die Python-Installer von python.org und die .exe mitbringen. Mit
@@ -376,7 +437,12 @@ python -m unittest discover -s tests -t .
 - Geprüft werden Treffer, Fehlalarme (Hashes, GUIDs, Pfade, Zahlen, Ports), dass Berichte und Fehlermeldungen
   keine Originalwerte enthalten, dass derselbe Wert in mehreren Schreibweisen überall ersetzt wird, die
   blockweise Verarbeitung großer Dateien und die Kommandozeile.
-- GUI-Smoke-Test (braucht ein Display und customtkinter): `python tests/gui_smoke.py`
+- Office- und PDF-Tests bauen ihre Testdokumente selbst (minimales OOXML bzw. PDF). Dass bereinigte Dateien in
+  Word, Excel und PowerPoint ohne Reparatur öffnen, wurde zusätzlich mit echten, von Office erzeugten Dateien
+  geprüft. Die PDF-Tests brauchen `pypdf`.
+- Mehrkern-Tests vergleichen das Ergebnis byte-genau mit einem Lauf mit einem Kern.
+- GUI-Smoke-Test (braucht ein Display und customtkinter, für Drag & Drop tkinterdnd2):
+  `python tests/gui_smoke.py`
 - Auf GitHub laufen die Tests bei jedem Push automatisch unter Windows und Linux mit Python 3.10 und 3.13
   (`.github/workflows/tests.yml`).
 
@@ -387,7 +453,8 @@ secret_sanitizer/
 ├── __main__.py          Einstieg: GUI oder CLI
 ├── cli.py               Kommandozeile
 ├── config.py            APP_NAME, Einstellungen laden/speichern
-├── core/                pipeline, models, rules, merger, replacer, encoding, files, archives
+├── core/                pipeline, models, rules, merger, replacer, encoding, files, archives,
+│                        office, pdf, parallel (mehrere Kerne), profiles
 ├── detectors/           regex, context (+ Kommandozeile), wordlist, entropy, validators
 ├── rules/               default_rules.json, user_rules.json (Vorlage)
 └── gui/                 app, widgets, rule_editor
