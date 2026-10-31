@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sanitize-filenames", action="store_true",
                    help="Auch Ordner- und Dateinamen bereinigen (z. B. backup_[HOSTNAME_1].log); der Bericht "
                         "zeigt dann nur die bereinigten Namen.")
+    p.add_argument("--no-office", action="store_true",
+                   help="Word/Excel/PowerPoint nicht bereinigen, sondern wie Binärdateien überspringen.")
+    p.add_argument("--keep-office-media", action="store_true",
+                   help="Bilder und eingebettete Objekte in Office-Dokumenten behalten (Standard: entfernen, "
+                        "weil sie nicht geprüft werden können).")
     p.add_argument("--no-archives", action="store_true",
                    help="Archive (.zip, .tar, .tar.gz, .gz) nicht entpacken, sondern wie Binärdateien überspringen.")
     p.add_argument("--workers", type=int, metavar="N",
@@ -140,6 +145,10 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         settings.sanitize_filenames = True
     if args.no_archives:
         settings.process_archives = False
+    if args.no_office:
+        settings.process_office = False
+    if args.keep_office_media:
+        settings.office_remove_media = False
     if args.workers is not None:
         if args.workers < 1:
             parser.error("--workers muss mindestens 1 sein.")

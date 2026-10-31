@@ -76,6 +76,9 @@ class Settings:
     max_archive_mb: float = 500
     # CPU-Kerne für Ordnerläufe: 0 = automatisch (Kerne - 1, höchstens 8), 1 = nur ein Kern
     workers: int = 0
+    # Word/Excel/PowerPoint (.docx, .xlsx, .pptx) bereinigen; Bilder und eingebettete Objekte entfernen
+    process_office: bool = True
+    office_remove_media: bool = True
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:

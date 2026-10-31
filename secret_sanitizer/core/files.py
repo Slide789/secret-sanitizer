@@ -34,10 +34,11 @@ from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
-from . import archives, merger, parallel
+from . import archives, merger, office, parallel
 from .replacer import apply_replacements
 
 REPORT_NAME = f"{APP_NAME}_bericht.txt"
+OFFICE_PREFIX = "office:"   # Pseudo-Kodierung für Office-Dokumente in FileEntry.encoding
 MAX_SAMPLES = 12
 
 STATUS_LABELS = {"processed": "bearbeitet", "skipped": "übersprungen", "failed": "fehlgeschlagen"}
@@ -56,6 +57,7 @@ class FileEntry:
     encoding: str = ""
     size_bytes: int = 0
     counts: dict = field(default_factory=dict)
+    note: str = ""   # Zusatzinfo ohne Inhalte, z. B. "2 Bild(er)/Objekt(e) entfernt"
 
     @property
     def total(self) -> int:
@@ -121,6 +123,8 @@ class Report:
             lines += ["", f"--- {STATUS_LABELS[status]} ---"]
             for e in entries:
                 detail = e.reason or (", ".join(f"{k}={v}" for k, v in sorted(e.counts.items())) or "keine Treffer")
+                if e.note:
+                    detail += f"; {e.note}"
                 lines.append(f"{e.rel_path}  [{e.encoding or '-'}]  {detail}")
         if self.excluded:
             lines += ["", "--- ausgeschlossen (Ausschlussmuster) ---"] + list(self.excluded)
@@ -137,7 +141,7 @@ class Report:
             "aborted": self.aborted, "totals": self.totals(), "excluded": list(self.excluded),
             "stale": list(self.stale), "cleaned": self.cleaned,
             "files": [{"path": e.rel_path, "status": e.status, "reason": e.reason, "encoding": e.encoding,
-                       "size_bytes": e.size_bytes, "counts": e.counts} for e in self.entries],
+                       "size_bytes": e.size_bytes, "counts": e.counts, "note": e.note} for e in self.entries],
         }
 
     def to_json(self) -> str:
@@ -151,6 +155,8 @@ def _now() -> str:
 def safe_reason(exc: BaseException) -> str:
     """Allgemeine Fehlerbeschreibung OHNE str(exc) (könnte Inhalte enthalten)."""
     name = type(exc).__name__
+    if isinstance(exc, (office.OfficeError, archives.ArchiveError)):
+        return str(exc)   # diese Meldungen enthalten nie Inhalte
     if isinstance(exc, PermissionError):
         return "keine Berechtigung"
     if isinstance(exc, FileNotFoundError):
@@ -358,7 +364,11 @@ class FileRun:
             report.entries.append(entry)
             try:
                 entry.size_bytes = src.stat().st_size
-                encoding = sniff(src)
+                kind = office.office_kind(rel) if self.settings.process_office else None
+                if self.settings.process_office and office.is_macro_document(rel):
+                    entry.status, entry.reason = "skipped", "Dokument mit Makros (nicht unterstützt)"
+                    continue
+                encoding = f"{OFFICE_PREFIX}{kind}" if kind else sniff(src)
                 if encoding is None:
                     entry.status, entry.reason = "skipped", "Binärdatei"
                     continue
@@ -451,7 +461,8 @@ class FileRun:
             futures[index] = future
             self._report_progress(len(futures), total * 2, candidates[index][1])
 
-        jobs = [(i, (str(src), encoding)) for i, (src, _rel, _entry, encoding) in enumerate(candidates)]
+        jobs = [(i, (str(src), encoding)) for i, (src, _rel, _entry, encoding) in enumerate(candidates)
+                if not encoding.startswith(OFFICE_PREFIX)]
         initargs = (self.settings, self.sanitizer.ruleset, self.exclude, None)
         parallel.run_tasks(parallel._learn_task, jobs, parallel.worker_count(self.settings), initargs,
                            self.cancel, on_done)
@@ -459,7 +470,14 @@ class FileRun:
             report.aborted = "vom Benutzer abgebrochen"
         todo = []
         # Platzhalter in fester Dateireihenfolge vergeben (wie mit einem Kern)
-        for i, (src, rel, entry, _encoding) in enumerate(candidates):
+        for i, (src, rel, entry, encoding) in enumerate(candidates):
+            if encoding.startswith(OFFICE_PREFIX) and not report.aborted:
+                try:   # Office-Dokumente lernt der Hauptprozess, an ihrer Position in der Reihenfolge
+                    self._learn_file(src, encoding)
+                    todo.append((src, rel, entry))
+                except Exception as exc:  # noqa: BLE001
+                    entry.status, entry.reason = "failed", safe_reason(exc)
+                continue
             future = futures.get(i)
             if future is None or future.cancelled():
                 continue
@@ -484,10 +502,7 @@ class FileRun:
                 break
             self._report_progress(total + i, total * 2, rel)
             try:
-                if dry_run:
-                    entry.counts = self._process_file(src, entry.encoding, report, None)
-                else:
-                    entry.counts = self._write_file(src, out_root / dest_rel, entry.encoding, report)
+                self._process_one(src, entry, None if dry_run else out_root / dest_rel, report)
                 written.add(dest_rel)
                 done.add(rel)
             except _Cancelled:
@@ -509,6 +524,8 @@ class FileRun:
 
         tasks = []
         for i, (src, _rel, entry, dest_rel) in enumerate(jobs):
+            if entry.encoding.startswith(OFFICE_PREFIX):
+                continue
             dest = None if dry_run else str(out_root / dest_rel)
             tasks.append((i, (str(src), dest, entry.encoding)))
         initargs = (self.settings, self.sanitizer.ruleset, self.exclude, blob)
@@ -517,7 +534,11 @@ class FileRun:
         if self.cancel.is_set():
             report.aborted = "vom Benutzer abgebrochen"
         results = []
+        office_jobs = []
         for i, (src, rel, entry, dest_rel) in enumerate(jobs):
+            if entry.encoding.startswith(OFFICE_PREFIX):
+                office_jobs.append((src, rel, entry, dest_rel))
+                continue
             future = futures.get(i)
             if future is None or future.cancelled():
                 continue
@@ -538,7 +559,19 @@ class FileRun:
                     report.samples.append(sample)
             written.add(dest_rel)
             done.add(rel)
-        return True
+        # Office-Dokumente im Hauptprozess; ein neuer Wert hier -> wie oben alles wiederholen
+        before = len(self.sanitizer.mapping._originals)
+        for src, rel, entry, dest_rel in office_jobs:
+            if self.cancel.is_set():
+                report.aborted = "vom Benutzer abgebrochen"
+                break
+            try:
+                self._process_one(src, entry, None if dry_run else out_root / dest_rel, report)
+                written.add(dest_rel)
+                done.add(rel)
+            except Exception as exc:  # noqa: BLE001
+                entry.status, entry.reason = "failed", safe_reason(exc)
+        return len(self.sanitizer.mapping._originals) == before
 
     # ------------------------------------------------------------------
     def _expand_archives(self, files, report: Report):
@@ -625,7 +658,23 @@ class FileRun:
         return names
 
     def _learn_file(self, src: Path, encoding: str) -> str:
+        if encoding.startswith(OFFICE_PREFIX):
+            office.process_document(self.sanitizer, src, self.settings, self.exclude, learn=True)
+            return encoding
         return learn_file(self.sanitizer, src, encoding, self.settings, self.exclude, self.cancel)
+
+    def _process_one(self, src: Path, entry: FileEntry, dest: Path | None, report: Report) -> None:
+        """Durchlauf 2 für eine Datei im Hauptprozess (dest=None: nur zählen)."""
+        if entry.encoding.startswith(OFFICE_PREFIX):
+            result = office.process_document(self.sanitizer, src, self.settings, self.exclude, dest=dest)
+            entry.counts, entry.note = result.counts, result.note
+            for sample in result.samples:
+                if len(report.samples) < MAX_SAMPLES and sample not in report.samples:
+                    report.samples.append(sample)
+        elif dest is None:
+            entry.counts = self._process_file(src, entry.encoding, report, None)
+        else:
+            entry.counts = self._write_file(src, dest, entry.encoding, report)
 
     def _write_file(self, src: Path, dest: Path, encoding: str, report: Report) -> dict:
         return write_file(self.sanitizer, src, dest, encoding, self.settings, self.exclude, self.cancel,

@@ -36,6 +36,7 @@ from ..core.models import PERSONAL_CATEGORIES
 from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
                           save_sanitized_text)
 from ..core.archives import archive_kind
+from ..core.office import office_kind
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
@@ -518,10 +519,15 @@ class App(ctk.CTk, *_DND_BASES):
                 "Große Datei", f"Die Datei ist {size_mb:.0f} MB groß (Limit {self.settings.max_file_size_mb:g} MB).\n"
                                "Trotzdem verarbeiten?", parent=self):
             return
-        # Archive haben keine Textvorschau: wie ein Ordner im Reiter "Dateien & Ordner" bereinigen
-        if self.settings.process_archives and archive_kind(path.name):
-            if messagebox.askyesno("Archiv", "Archive werden entpackt, bereinigt und wieder eingepackt.\n"
-                                             "Jetzt bereinigen und in den Ausgabeordner schreiben?", parent=self):
+        # Archive und Office-Dokumente haben keine Textvorschau: wie ein Ordner im
+        # Reiter "Dateien & Ordner" bereinigen
+        is_archive = self.settings.process_archives and archive_kind(path.name)
+        is_office = self.settings.process_office and office_kind(path.name)
+        if is_archive or is_office:
+            what = ("Archive werden entpackt, bereinigt und wieder eingepackt." if is_archive else
+                    "Office-Dokumente werden direkt bereinigt (Layout bleibt erhalten).")
+            if messagebox.askyesno("Datei bereinigen", what + "\nJetzt bereinigen und in den Ausgabeordner "
+                                                              "schreiben?", parent=self):
                 self.tabs.set("Dateien & Ordner")
                 self.input_var.set(str(path))
                 self.start_run()
@@ -878,6 +884,20 @@ class App(ctk.CTk, *_DND_BASES):
             ctk.CTkEntry(scroll, textvariable=var, width=420).grid(row=row, column=1, sticky="w", pady=3)
             row += 1
 
+        ctk.CTkLabel(scroll, text="Dokumente", font=ctk.CTkFont(size=15, weight="bold")
+                     ).grid(row=row, column=0, sticky="w", pady=(14, 6))
+        row += 1
+        self.bool_vars: dict[str, tk.BooleanVar] = {}
+        for key, label in (("process_office", "Word, Excel, PowerPoint (.docx, .xlsx, .pptx) bereinigen"),
+                           ("office_remove_media", "Bilder und eingebettete Objekte aus Office-Dokumenten entfernen "
+                                                   "(empfohlen: Bilder können nicht geprüft werden)")):
+            var = tk.BooleanVar(value=getattr(self.settings, key))
+            self.bool_vars[key] = var
+            ctk.CTkCheckBox(scroll, text=label, variable=var,
+                            command=lambda k=key: self._bool_setting_changed(k)).grid(
+                row=row, column=0, columnspan=2, sticky="w", pady=3)
+            row += 1
+
         ctk.CTkLabel(scroll, text="Modus-Schwellen (Mindest-Konfidenz 0..1)", font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=row, column=0, sticky="w", pady=(14, 6))
         row += 1
@@ -968,7 +988,13 @@ class App(ctk.CTk, *_DND_BASES):
         self._sync_settings_form()
         self.schedule_preview(immediate=True)
 
+    def _bool_setting_changed(self, key: str) -> None:
+        setattr(self.settings, key, bool(self.bool_vars[key].get()))
+        self._persist_settings()
+
     def _sync_settings_form(self) -> None:
+        for key, var in self.bool_vars.items():
+            var.set(getattr(self.settings, key))
         self.filenames_var.set(self.settings.sanitize_filenames)
         self.archives_var.set(self.settings.process_archives)
         data = self.settings.to_dict()
