@@ -17,7 +17,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 import customtkinter as ctk
 
@@ -41,6 +41,7 @@ from ..core.pdf import is_pdf
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
+from . import dialogs
 from .rule_editor import RuleEditor
 from .widgets import CategoryPanel, FindingTable, HighlightTextbox
 
@@ -96,12 +97,12 @@ class App(ctk.CTk, *_DND_BASES):
         self.dnd_enabled = self._enable_drag_and_drop()
         self.after(100, self._poll_queue)
         if self.ruleset.errors:
-            self.after(300, lambda: messagebox.showwarning(
-                "Regeln", "Einige eigene Regeln sind ungültig und werden ignoriert:\n\n" + "\n".join(self.ruleset.errors)))
+            self.after(300, lambda: dialogs.show_warning(
+                "Regeln", "Einige eigene Regeln sind ungültig und werden ignoriert:\n\n" + "\n".join(self.ruleset.errors), self))
         slow = slow_pattern_warnings(self.ruleset)
         if slow:
-            self.after(400, lambda: messagebox.showwarning(
-                "Regeln", "Achtung, mögliche Ursache für Hänger:\n\n" + "\n".join(slow)))
+            self.after(400, lambda: dialogs.show_warning(
+                "Regeln", "Achtung, mögliche Ursache für Hänger:\n\n" + "\n".join(slow), self))
 
     # ------------------------------------------------------------------
     # Regeln / Sanitizer
@@ -410,10 +411,10 @@ class App(ctk.CTk, *_DND_BASES):
             return
         value = info["value"].strip()
         if not value or "\n" in value:
-            messagebox.showerror("Immer ignorieren", "Mehrzeilige Werte können nicht in die Allowlist übernommen "
+            dialogs.show_error("Immer ignorieren", "Mehrzeilige Werte können nicht in die Allowlist übernommen "
                                                      "werden.", parent=self)
             return
-        if not messagebox.askyesno(
+        if not dialogs.ask_yes_no(
                 "Immer ignorieren",
                 f"Diesen Wert ({len(value)} Zeichen) künftig nie mehr ersetzen?\n\n"
                 "Er wird im Klartext in die Allowlist (user_rules.json) gespeichert. Nur für Werte verwenden, "
@@ -485,7 +486,7 @@ class App(ctk.CTk, *_DND_BASES):
             self._toast("Abgelegtes Element nicht gefunden.", error=True)
             return
         if len(existing) > 1:
-            messagebox.showinfo("Drag & Drop", "Bitte nur eine Datei oder einen Ordner auf einmal ablegen.\n"
+            dialogs.show_info("Drag & Drop", "Bitte nur eine Datei oder einen Ordner auf einmal ablegen.\n"
                                                "Mehrere Dateien am besten in einen Ordner legen und den Ordner "
                                                "ablegen.", parent=self)
             return
@@ -511,10 +512,10 @@ class App(ctk.CTk, *_DND_BASES):
         try:
             size = path.stat().st_size
         except OSError as exc:
-            messagebox.showerror("Datei öffnen", f"Datei kann nicht gelesen werden ({safe_reason(exc)}).", parent=self)
+            dialogs.show_error("Datei öffnen", f"Datei kann nicht gelesen werden ({safe_reason(exc)}).", parent=self)
             return
         size_mb = size / 1024 / 1024
-        if size_mb > self.settings.max_file_size_mb and not messagebox.askyesno(
+        if size_mb > self.settings.max_file_size_mb and not dialogs.ask_yes_no(
                 "Große Datei", f"Die Datei ist {size_mb:.0f} MB groß (Limit {self.settings.max_file_size_mb:g} MB).\n"
                                "Trotzdem verarbeiten?", parent=self):
             return
@@ -527,7 +528,7 @@ class App(ctk.CTk, *_DND_BASES):
             what = ("Archive werden entpackt, bereinigt und wieder eingepackt." if is_archive else
                     "Office-Dokumente werden direkt bereinigt (Layout bleibt erhalten)." if is_office else
                     "Aus PDFs wird der Text gelesen und als bereinigte .txt-Datei gespeichert.")
-            if messagebox.askyesno("Datei bereinigen", what + "\nJetzt bereinigen und in den Ausgabeordner "
+            if dialogs.ask_yes_no("Datei bereinigen", what + "\nJetzt bereinigen und in den Ausgabeordner "
                                                               "schreiben?", parent=self):
                 self.tabs.set("Dateien & Ordner")
                 self.input_var.set(str(path))
@@ -535,7 +536,7 @@ class App(ctk.CTk, *_DND_BASES):
             return
         # Große Dateien: ohne Vorschau direkt in den Ausgabeordner
         if size > self.settings.max_preview_chars * 2:
-            if messagebox.askyesno("Große Datei", "Die Datei ist zu groß für die farbige Vorschau.\n"
+            if dialogs.ask_yes_no("Große Datei", "Die Datei ist zu groß für die farbige Vorschau.\n"
                                                   "Direkt bereinigen und in den Ausgabeordner schreiben?", parent=self):
                 self.tabs.set("Dateien & Ordner")
                 self.input_var.set(str(path))
@@ -544,10 +545,10 @@ class App(ctk.CTk, *_DND_BASES):
         try:
             loaded = load_text_file(path)
         except RunError as exc:
-            messagebox.showerror("Datei öffnen", str(exc), parent=self)
+            dialogs.show_error("Datei öffnen", str(exc), parent=self)
             return
         except Exception as exc:  # noqa: BLE001 - Meldung ohne Inhalt
-            messagebox.showerror("Datei öffnen", f"Datei kann nicht gelesen werden ({safe_reason(exc)}).", parent=self)
+            dialogs.show_error("Datei öffnen", f"Datei kann nicht gelesen werden ({safe_reason(exc)}).", parent=self)
             return
         self.excluded.clear()
         self.excluded_keys.clear()
@@ -564,12 +565,12 @@ class App(ctk.CTk, *_DND_BASES):
         try:
             dest = save_sanitized_text(path, self.result.text, loaded, self.settings, name=name)
         except RunError as exc:
-            messagebox.showerror("Speichern", str(exc), parent=self)
+            dialogs.show_error("Speichern", str(exc), parent=self)
             return
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Speichern", f"Speichern fehlgeschlagen ({safe_reason(exc)}).", parent=self)
+            dialogs.show_error("Speichern", f"Speichern fehlgeschlagen ({safe_reason(exc)}).", parent=self)
             return
-        messagebox.showinfo("Gespeichert", f"Bereinigte Datei gespeichert:\n{dest}\n\nDas Original wurde nicht verändert.",
+        dialogs.show_info("Gespeichert", f"Bereinigte Datei gespeichert:\n{dest}\n\nDas Original wurde nicht verändert.",
                             parent=self)
 
     def choose_folder_from_text_tab(self) -> None:
@@ -661,7 +662,7 @@ class App(ctk.CTk, *_DND_BASES):
             return
         src = self.input_var.get().strip()
         if not src or not Path(src).exists():
-            messagebox.showerror("Bereinigen", "Bitte zuerst eine vorhandene Datei oder einen Ordner wählen.", parent=self)
+            dialogs.show_error("Bereinigen", "Bitte zuerst eine vorhandene Datei oder einen Ordner wählen.", parent=self)
             return
         self._cancel.clear()
         self.start_btn.configure(state="disabled")
@@ -717,7 +718,7 @@ class App(ctk.CTk, *_DND_BASES):
                     self.progress_label.configure(text=f"{phase}: {rel}" if rel else "fertig")
                 elif kind == "ask":
                     _, title, question, answer, event = msg
-                    answer["value"] = messagebox.askyesno(title, question, parent=self)
+                    answer["value"] = dialogs.ask_yes_no(title, question, parent=self)
                     event.set()
                 elif kind == "done":
                     _, report, out_root = msg
@@ -742,7 +743,7 @@ class App(ctk.CTk, *_DND_BASES):
                 elif kind == "error":
                     self._run_finished()
                     self.progress_label.configure(text="Fehler.")
-                    messagebox.showerror("Bereinigen", msg[1], parent=self)
+                    dialogs.show_error("Bereinigen", msg[1], parent=self)
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)
@@ -763,7 +764,7 @@ class App(ctk.CTk, *_DND_BASES):
 
                 subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path])
         except OSError as exc:
-            messagebox.showerror("Ordner öffnen", f"Ordner kann nicht geöffnet werden ({type(exc).__name__}).", parent=self)
+            dialogs.show_error("Ordner öffnen", f"Ordner kann nicht geöffnet werden ({type(exc).__name__}).", parent=self)
 
     # ------------------------------------------------------------------
     # Tab: Antwort zurückübersetzen
@@ -970,7 +971,7 @@ class App(ctk.CTk, *_DND_BASES):
         try:
             data = self._form_to_dict()
         except ValueError as exc:
-            messagebox.showerror("Einstellungen", f"Ungültige Zahl im Feld '{exc}'.", parent=self)
+            dialogs.show_error("Einstellungen", f"Ungültige Zahl im Feld '{exc}'.", parent=self)
             return
         new = Settings.from_dict(data)
         changed = [k for k in ("output_encoding", "placeholder_style") if getattr(new, k) != data[k]]
@@ -979,7 +980,7 @@ class App(ctk.CTk, *_DND_BASES):
         self.output_var.set(new.output_dir)
         self._sync_settings_form()
         if changed:
-            messagebox.showwarning("Einstellungen", "Ungültige Werte wurden auf Standard zurückgesetzt: "
+            dialogs.show_warning("Einstellungen", "Ungültige Werte wurden auf Standard zurückgesetzt: "
                                    + ", ".join(changed), parent=self)
         self._toast("Einstellungen gespeichert.")
         self.schedule_preview(immediate=True)

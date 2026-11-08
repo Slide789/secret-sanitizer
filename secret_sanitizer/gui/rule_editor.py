@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 
 import customtkinter as ctk
 
@@ -15,6 +15,7 @@ from ..core import profiles
 from ..core.models import CATEGORIES
 from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, redos_risk, rule_from_dict
 from ..detectors.wordlist_detector import compile_wordlist
+from . import dialogs
 from .widgets import HighlightTextbox, style_treeview
 
 CATEGORY_IDS = list(CATEGORIES)
@@ -211,9 +212,9 @@ class RuleEditor(ctk.CTkFrame):
                 "flags": ["IGNORECASE"] if self.var_icase.get() else [], "enabled": self.var_enabled.get(),
             })
         except RuleError as exc:
-            messagebox.showerror("Regel ungültig", str(exc), parent=self)
+            dialogs.show_error("Regel ungültig", str(exc), parent=self)
             return
-        if redos_risk(rule.pattern) and not messagebox.askyesno(
+        if redos_risk(rule.pattern) and not dialogs.ask_yes_no(
                 "Langsames Muster", REDOS_WARNING + "\n\nTrotzdem übernehmen?", parent=self):
             return
         if self._current is None:
@@ -229,7 +230,7 @@ class RuleEditor(ctk.CTkFrame):
         if self._current is None:
             return
         rule = self.user_rules.rules[self._current]
-        if not messagebox.askyesno("Regel löschen", f"Regel '{rule.name}' löschen?", parent=self):
+        if not dialogs.ask_yes_no("Regel löschen", f"Regel '{rule.name}' löschen?", parent=self):
             return
         del self.user_rules.rules[self._current]
         self._current = None
@@ -319,10 +320,10 @@ class RuleEditor(ctk.CTkFrame):
                 try:
                     re.compile(value)
                 except re.error as exc:
-                    messagebox.showerror("Allowlist", f"Ungültiger regulärer Ausdruck in der Allowlist ({exc.msg}).",
+                    dialogs.show_error("Allowlist", f"Ungültiger regulärer Ausdruck in der Allowlist ({exc.msg}).",
                                          parent=self)
                     return False
-                if redos_risk(value) and not messagebox.askyesno(
+                if redos_risk(value) and not dialogs.ask_yes_no(
                         "Allowlist", REDOS_WARNING + "\n\nTrotzdem speichern?", parent=self):
                     return False
                 entries.append(AllowEntry(value=value, regex=True, description="In der GUI gepflegt."))
@@ -367,17 +368,17 @@ class RuleEditor(ctk.CTkFrame):
             return
         name = name.strip()
         if not profiles.valid_profile_name(name):
-            messagebox.showerror("Profil", "Ungültiger Name. Erlaubt sind Buchstaben, Ziffern, Leerzeichen und "
+            dialogs.show_error("Profil", "Ungültiger Name. Erlaubt sind Buchstaben, Ziffern, Leerzeichen und "
                                            "- _ . (max. 60 Zeichen).", parent=self)
             return
-        if name in profiles.list_profiles() and not messagebox.askyesno(
+        if name in profiles.list_profiles() and not dialogs.ask_yes_no(
                 "Profil", f"Profil \"{name}\" überschreiben?", parent=self):
             return
         settings = self.get_settings() if self.get_settings else None
         try:
             profiles.save_named_profile(name, self.user_rules, settings)
         except (OSError, profiles.ProfileError) as exc:
-            messagebox.showerror("Profil", f"Speichern fehlgeschlagen ({type(exc).__name__}).", parent=self)
+            dialogs.show_error("Profil", f"Speichern fehlgeschlagen ({type(exc).__name__}).", parent=self)
             return
         self._refresh_profiles(select=name)
         self.status.configure(text=f"Profil gespeichert: {name}")
@@ -385,12 +386,12 @@ class RuleEditor(ctk.CTkFrame):
     def load_selected_profile(self) -> None:
         name = self.var_profile.get().strip()
         if not name:
-            messagebox.showinfo("Profil", "Noch kein Profil gespeichert oder ausgewählt.", parent=self)
+            dialogs.show_info("Profil", "Noch kein Profil gespeichert oder ausgewählt.", parent=self)
             return
         try:
             profile = profiles.load_named_profile(name)
         except profiles.ProfileError as exc:
-            messagebox.showerror("Profil", str(exc), parent=self)
+            dialogs.show_error("Profil", str(exc), parent=self)
             return
         self._import(profile)
 
@@ -402,7 +403,7 @@ class RuleEditor(ctk.CTkFrame):
         try:
             profile = profiles.load_profile(path)
         except profiles.ProfileError as exc:
-            messagebox.showerror("Profil importieren", str(exc), parent=self)
+            dialogs.show_error("Profil importieren", str(exc), parent=self)
             return
         self._import(profile)
 
@@ -423,7 +424,7 @@ class RuleEditor(ctk.CTkFrame):
             if len(profile.warnings) > 8:
                 lines.append(f"  … und {len(profile.warnings) - 8} weitere")
         if merge is None:
-            answer = messagebox.askyesnocancel(
+            answer = dialogs.ask_yes_no_cancel(
                 "Profil übernehmen", "\n".join(lines) + "\n\nJa = mit den aktuellen Regeln zusammenführen\n"
                                                         "Nein = aktuelle eigene Regeln ersetzen", parent=self)
             if answer is None:
@@ -450,16 +451,16 @@ class RuleEditor(ctk.CTkFrame):
             return
         with_words = False
         if any(w.words for w in self.user_rules.wordlists):
-            with_words = messagebox.askyesno(
+            with_words = dialogs.ask_yes_no(
                 "Wortlisten mitexportieren?",
                 "Die Wortlisten enthalten Firmen-, Host- und Personennamen im Klartext.\n\n"
                 "Nur mitexportieren, wenn die Datei in vertrauenswürdigen Händen bleibt.\n\nMitexportieren?",
-                default=messagebox.NO, parent=self)
+                default="no", parent=self)
         settings = self.get_settings() if self.get_settings else None
         try:
             profiles.export_profile(path, self.user_rules, Path(path).stem, settings, with_words)
         except OSError as exc:
-            messagebox.showerror("Profil exportieren", f"Speichern fehlgeschlagen ({type(exc).__name__}).",
+            dialogs.show_error("Profil exportieren", f"Speichern fehlgeschlagen ({type(exc).__name__}).",
                                  parent=self)
             return
         self.status.configure(text=f"Profil exportiert{' (mit Wortlisten)' if with_words else ' (ohne Wortlisten)'}: "
@@ -487,7 +488,7 @@ class RuleEditor(ctk.CTkFrame):
         try:
             path = self.on_save(self.user_rules)
         except OSError as exc:
-            messagebox.showerror("Speichern fehlgeschlagen", f"Regeln konnten nicht gespeichert werden "
+            dialogs.show_error("Speichern fehlgeschlagen", f"Regeln konnten nicht gespeichert werden "
                                                               f"({type(exc).__name__}).", parent=self)
             return False
         self.status.configure(text=f"Gespeichert: {path}")

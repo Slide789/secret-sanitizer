@@ -1,4 +1,8 @@
 {
+  "dialog.ok": "OK",
+  "dialog.yes": "Yes",
+  "dialog.no": "No",
+  "dialog.cancel": "Cancel",
   "app.title": "Secret Sanitizer",
   "test.braces": "[{CATEGORY}_{N}]",
   "group.secrets": "Credentials & keys",

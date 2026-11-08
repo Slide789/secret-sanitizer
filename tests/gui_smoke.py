@@ -152,7 +152,7 @@ def main() -> int:
 
     # 5c) "Immer ignorieren" übernimmt den Wert in die Allowlist
     from secret_sanitizer.gui import app as app_module
-    app_module.messagebox.askyesno = lambda *a, **k: True
+    app_module.dialogs.ask_yes_no = lambda *a, **k: True
     app.tabs.set("Text & Vorschau")
     ip_row = next(r for r in app.table.tree.get_children() if app.table._keys[r].startswith("[IP_"))
     app.table.tree.selection_set(ip_row)
@@ -170,11 +170,11 @@ def main() -> int:
     from secret_sanitizer.gui import rule_editor as editor_module
     export_path = TMP / "export.json"
     editor_module.filedialog.asksaveasfilename = lambda **k: str(export_path)
-    app_module.messagebox.askyesno = lambda *a, **k: False      # Wortlisten nicht mitexportieren
+    app_module.dialogs.ask_yes_no = lambda *a, **k: False      # Wortlisten nicht mitexportieren
     ed.export_profile()
     exported = export_path.read_text(encoding="utf-8")
     assert "Fakefirma" not in exported and "TICKET" in exported, exported[:300]
-    app_module.messagebox.askyesno = lambda *a, **k: True
+    app_module.dialogs.ask_yes_no = lambda *a, **k: True
     import_path = TMP / "import.json"
     import_path.write_text(_json.dumps({
         "type": profiles.PROFILE_TYPE, "version": 1, "name": "Smoke",
@@ -210,7 +210,7 @@ def main() -> int:
     pump(app, 0.2)
     assert app.tabs.get() == "Dateien & Ordner" and app.input_var.get() == str(src)
     shown = []
-    app_module.messagebox.showinfo = lambda *a, **k: shown.append(a)
+    app_module.dialogs.show_info = lambda *a, **k: shown.append(a)
     app._on_drop(Drop(dropped, src))
     assert shown and app.input_var.get() == str(src), "mehrere Elemente sollten abgelehnt werden"
     app.tabs.set("Text & Vorschau")
