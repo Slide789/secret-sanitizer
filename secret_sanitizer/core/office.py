@@ -32,6 +32,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..i18n import t
 from .replacer import PLACEHOLDER_RE, apply_replacements
 
 OFFICE_KINDS = {".docx": "docx", ".xlsx": "xlsx", ".pptx": "pptx"}
@@ -123,7 +124,7 @@ class OfficeResult:
 
     @property
     def note(self) -> str:
-        return f"{self.removed_media} Bild(er)/Objekt(e) entfernt" if self.removed_media else ""
+        return t("office.removed_media", n=self.removed_media) if self.removed_media else ""
 
 
 # ----------------------------------------------------------------------
@@ -140,7 +141,7 @@ class _Tok:
 
 def _tokenize(xml: str) -> list[_Tok]:
     if "<!DOCTYPE" in xml or "<!ENTITY" in xml:
-        raise OfficeError("Dokument enthält eine DOCTYPE-Deklaration (nicht erlaubt)")
+        raise OfficeError(t("office.doctype"))
     toks: list[_Tok] = []
     pos = 0
     for m in _TAG_RE.finditer(xml):
@@ -171,12 +172,12 @@ def _spans(toks: list[_Tok]) -> dict[int, int]:
             stack.append(i)
         elif t.kind == "end":
             if not stack:
-                raise OfficeError("XML nicht wohlgeformt")
+                raise OfficeError(t("office.xml_malformed"))
             spans[stack.pop()] = i
         elif t.kind == "empty":
             spans[i] = i
     if stack:
-        raise OfficeError("XML nicht wohlgeformt")
+        raise OfficeError(t("office.xml_malformed"))
     return spans
 
 
@@ -226,7 +227,7 @@ def _restructure(toks: list[_Tok], removed_rids: set) -> list[_Tok]:
         remaining = [rid for k, t in enumerate(toks) if t.tag and not skip[k]
                      for rid in _RID_RE.findall(t.raw) if rid in removed_rids]
         if remaining:
-            raise OfficeError("Verweis auf ein entferntes Bild/Objekt konnte nicht sicher entfernt werden")
+            raise OfficeError(t("office.dangling_reference"))
     return [t for k, t in enumerate(toks) if not skip[k]]
 
 
@@ -439,17 +440,17 @@ def _read_parts(src: Path, max_total: int, max_part: int) -> list[tuple[zipfile.
         with zipfile.ZipFile(src) as zf:
             infos = zf.infolist()
             if sum(i.file_size for i in infos) > max_total:
-                raise OfficeError("Dokument entpackt zu groß (max_archive_mb)")
+                raise OfficeError(t("office.too_large"))
             parts = []
             for info in infos:
                 if info.file_size > max_part:
-                    raise OfficeError("Teil des Dokuments zu groß (max_file_size_mb)")
+                    raise OfficeError(t("office.part_too_large"))
                 if info.flag_bits & 0x1:
-                    raise OfficeError("Dokument ist verschlüsselt")
+                    raise OfficeError(t("office.encrypted"))
                 parts.append((info, zf.read(info)))
             return parts
     except zipfile.BadZipFile:
-        raise OfficeError("kein gültiges Office-Dokument (verschlüsselt oder beschädigt?)") from None
+        raise OfficeError(t("office.invalid_or_encrypted")) from None
 
 
 def _decode(data: bytes) -> str:
@@ -459,7 +460,7 @@ def _decode(data: bytes) -> str:
         try:
             return data.decode("utf-16")
         except UnicodeDecodeError:
-            raise OfficeError("XML-Teil mit unbekannter Kodierung") from None
+            raise OfficeError(t("office.xml_encoding")) from None
 
 
 def _is_xml(name: str) -> bool:
@@ -474,7 +475,7 @@ def process_document(sanitizer, src: Path, settings, exclude=(), dest: Path | No
     parts = _read_parts(Path(src), max_total, max_part)
     names = {info.filename for info, _ in parts}
     if "[Content_Types].xml" not in names:
-        raise OfficeError("kein gültiges Office-Dokument")
+        raise OfficeError(t("office.invalid"))
     remove_media = getattr(settings, "office_remove_media", True)
     removed_parts = {n for n in names if remove_media and _removable(n)}
 

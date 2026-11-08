@@ -129,13 +129,13 @@ def compile_pattern(pattern: str, flags, rule_id: str) -> re.Pattern:
     value = 0
     for name in flags or []:
         if name not in ALLOWED_FLAGS:
-            raise RuleError(f"Regel '{rule_id}': unbekanntes Flag '{name}'")
+            raise RuleError(t("ruleerr.unknown_flag", id=rule_id, flag=name))
         value |= ALLOWED_FLAGS[name]
     try:
         return re.compile(pattern, value)
     except re.error as exc:
         # exc.msg enthält nur die Fehlerart, nicht den untersuchten Text.
-        raise RuleError(f"Regel '{rule_id}': ungültiger regulärer Ausdruck ({exc.msg}, Position {exc.pos})") from None
+        raise RuleError(t("ruleerr.bad_regex", id=rule_id, msg=exc.msg, pos=exc.pos)) from None
 
 
 def _sre_parse(pattern: str):
@@ -206,37 +206,37 @@ def redos_risk(pattern: str) -> bool:
 def slow_pattern_warnings(ruleset) -> list[str]:
     """Warnungen (ohne Textinhalte) für aktive Regeln und Allowlist-Einträge,
     die laut redos_risk sehr langsam werden können."""
-    warnings = [f"Regel '{r.id}': Muster kann sehr langsam werden (verschachtelte Wiederholung)"
+    warnings = [t("ruleerr.slow_rule", id=r.id)
                 for r in ruleset.rules if r.enabled and redos_risk(r.pattern)]
-    warnings += ["Allowlist: ein regulärer Ausdruck kann sehr langsam werden (verschachtelte Wiederholung)"
+    warnings += [t("ruleerr.slow_allow")
                  for a in ruleset.allowlist if a.regex and redos_risk(a.value)]
     return warnings
 
 
 def rule_from_dict(data: dict) -> Rule:
     if not isinstance(data, dict):
-        raise RuleError("Regel ist kein Objekt")
+        raise RuleError(t("ruleerr.not_object"))
     rule_id = str(data.get("id") or "").strip()
     if not rule_id:
-        raise RuleError("Regel ohne 'id'")
+        raise RuleError(t("ruleerr.no_id"))
     category = str(data.get("category") or "CUSTOM")
     if category not in CATEGORIES:
-        raise RuleError(f"Regel '{rule_id}': unbekannte Kategorie '{category}'")
+        raise RuleError(t("ruleerr.unknown_category", id=rule_id, category=category))
     detector = str(data.get("detector") or "regex")
     if detector not in ALLOWED_DETECTORS:
-        raise RuleError(f"Regel '{rule_id}': unbekannter Detektor '{detector}'")
+        raise RuleError(t("ruleerr.unknown_detector", id=rule_id, detector=detector))
     validator = data.get("validator") or None
     if validator is not None and validator not in ALLOWED_VALIDATORS:
-        raise RuleError(f"Regel '{rule_id}': unbekannter Validator '{validator}'")
+        raise RuleError(t("ruleerr.unknown_validator", id=rule_id, validator=validator))
     try:
         confidence = float(data.get("confidence", 0.8))
     except (TypeError, ValueError):
-        raise RuleError(f"Regel '{rule_id}': Konfidenz ist keine Zahl") from None
+        raise RuleError(t("ruleerr.confidence_nan", id=rule_id)) from None
     if not 0.0 <= confidence <= 1.0:
-        raise RuleError(f"Regel '{rule_id}': Konfidenz muss zwischen 0 und 1 liegen")
+        raise RuleError(t("ruleerr.confidence_range", id=rule_id))
     pattern = data.get("pattern")
     if not isinstance(pattern, str) or not pattern:
-        raise RuleError(f"Regel '{rule_id}': Muster fehlt")
+        raise RuleError(t("ruleerr.pattern_missing", id=rule_id))
     rule = Rule(
         id=rule_id,
         name=str(data.get("name") or rule_id),
@@ -252,17 +252,17 @@ def rule_from_dict(data: dict) -> Rule:
     )
     rule.compiled  # prüft das Muster sofort
     if rule.compiled.match(""):
-        raise RuleError(f"Regel '{rule_id}': Muster passt auf leeren Text")
+        raise RuleError(t("ruleerr.pattern_empty_match", id=rule_id))
     return rule
 
 
 def wordlist_from_dict(data: dict) -> Wordlist:
     wl_id = str(data.get("id") or "").strip()
     if not wl_id:
-        raise RuleError("Wortliste ohne 'id'")
+        raise RuleError(t("ruleerr.wordlist_no_id"))
     category = str(data.get("category") or "CUSTOM")
     if category not in CATEGORIES:
-        raise RuleError(f"Wortliste '{wl_id}': unbekannte Kategorie '{category}'")
+        raise RuleError(t("ruleerr.wordlist_unknown_category", id=wl_id, category=category))
     words = [str(w).strip() for w in (data.get("words") or []) if str(w).strip()]
     return Wordlist(
         id=wl_id,
@@ -281,7 +281,7 @@ def allow_from_dict(data) -> AllowEntry:
     entry = AllowEntry(value=str(data.get("value") or ""), regex=bool(data.get("regex", False)),
                        description=str(data.get("description") or ""))
     if not entry.value:
-        raise RuleError("Allowlist-Eintrag ohne Wert")
+        raise RuleError(t("ruleerr.allow_no_value"))
     if entry.regex:
         compile_pattern(entry.value, [], "allowlist")
     return entry
@@ -352,7 +352,7 @@ def _read_json(path: Path) -> dict:
     with open(path, "r", encoding="utf-8-sig") as fh:
         data = json.load(fh)
     if not isinstance(data, dict):
-        raise RuleError(f"{Path(path).name}: kein JSON-Objekt")
+        raise RuleError(t("ruleerr.not_json_object", name=Path(path).name))
     return data
 
 
@@ -373,7 +373,7 @@ def load_user_rules(path: Path) -> UserRules:
     try:
         data = _read_json(path)
     except (OSError, ValueError) as exc:
-        return UserRules(errors=[f"{path.name} konnte nicht gelesen werden ({type(exc).__name__})"])
+        return UserRules(errors=[t("ruleerr.unreadable_file", name=path.name, error=type(exc).__name__)])
     errors: list = []
     return UserRules(
         rules=_parse_entries(data.get("rules"), rule_from_dict, errors),

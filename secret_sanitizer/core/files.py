@@ -33,11 +33,13 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from ..config import APP_NAME, Settings
+from ..i18n import current_language, t
 from .encoding import SAMPLE_SIZE, detect_encoding, dominant_newline, output_encoding_for, restore_newlines
 from . import archives, merger, office, parallel, pdf
 from .replacer import apply_replacements
 
-REPORT_NAME = f"{APP_NAME}_bericht.txt"
+# Berichtsname je Sprache; beide Namen gelten als Bericht (Ausgabeordner erkennen, Namen reservieren)
+REPORT_NAMES = {"de": f"{APP_NAME}_bericht.txt", "en": f"{APP_NAME}_report.txt"}
 OFFICE_PREFIX = "office:"   # Pseudo-Kodierung für Office-Dokumente in FileEntry.encoding
 PDF_ENCODING = "pdf"        # Pseudo-Kodierung für PDFs (Ausgabe: <name>.pdf.txt)
 
@@ -47,7 +49,10 @@ def _in_main_process(encoding: str) -> bool:
     return encoding.startswith(OFFICE_PREFIX) or encoding == PDF_ENCODING
 MAX_SAMPLES = 12
 
-STATUS_LABELS = {"processed": "bearbeitet", "skipped": "übersprungen", "failed": "fehlgeschlagen"}
+
+def report_name() -> str:
+    """Dateiname des Berichts in der aktiven Sprache."""
+    return REPORT_NAMES.get(current_language(), REPORT_NAMES["en"])
 
 
 class RunError(Exception):
@@ -99,46 +104,46 @@ class Report:
 
     def to_text(self) -> str:
         lines = [
-            f"Bericht {APP_NAME}",
-            f"Eingabe: {self.input_name}",
-            f"Modus: {self.mode}",
-            f"Start: {self.started}   Ende: {self.finished}",
+            t("report.title", app=APP_NAME),
+            t("report.input", name=self.input_name),
+            t("report.mode", mode=self.mode),
+            t("report.times", started=self.started, finished=self.finished),
             "",
-            f"Bearbeitet: {len(self.by_status('processed'))}   "
-            f"Übersprungen: {len(self.by_status('skipped'))}   "
-            f"Fehlgeschlagen: {len(self.by_status('failed'))}",
+            t("report.counts", processed=len(self.by_status("processed")), skipped=len(self.by_status("skipped")),
+              failed=len(self.by_status("failed"))),
         ]
         if self.excluded:
-            lines.append(f"Ausgeschlossen (Ausschlussmuster): {len(self.excluded)}")
+            lines.append(t("report.excluded_count", n=len(self.excluded)))
         if self.workers > 1:
-            lines.append(f"CPU-Kerne: {self.workers}")
+            lines.append(t("report.workers", n=self.workers))
         if self.cleaned:
-            lines.append("Ausgabeordner wurde vor dem Lauf geleert.")
+            lines.append(t("report.cleaned"))
         if self.stale:
-            lines.append(f"WARNUNG: {len(self.stale)} Datei(en) im Ausgabeordner stammen aus einem früheren Lauf "
-                         "(andere Platzhalter-Nummerierung möglich).")
+            lines.append(t("report.stale_warning", n=len(self.stale)))
         if self.aborted:
-            lines.append(f"ABGEBROCHEN: {self.aborted}")
+            lines.append(t("report.aborted", reason=self.aborted))
+        status_labels = {"processed": t("report.status.processed"), "skipped": t("report.status.skipped"),
+                         "failed": t("report.status.failed")}
         totals = self.totals()
         if totals:
-            lines.append("Ersetzungen gesamt: " + ", ".join(f"{k}={v}" for k, v in totals.items()))
+            lines.append(t("report.totals", items=", ".join(f"{k}={v}" for k, v in totals.items())))
         for status in ("processed", "skipped", "failed"):
             entries = self.by_status(status)
             if not entries:
                 continue
-            lines += ["", f"--- {STATUS_LABELS[status]} ---"]
+            lines += ["", f"--- {status_labels[status]} ---"]
             for e in entries:
-                detail = e.reason or (", ".join(f"{k}={v}" for k, v in sorted(e.counts.items())) or "keine Treffer")
+                detail = e.reason or (", ".join(f"{k}={v}" for k, v in sorted(e.counts.items()))
+                                      or t("report.no_findings"))
                 if e.note:
                     detail += f"; {e.note}"
                 lines.append(f"{e.rel_path}  [{e.encoding or '-'}]  {detail}")
         if self.excluded:
-            lines += ["", "--- ausgeschlossen (Ausschlussmuster) ---"] + list(self.excluded)
+            lines += ["", t("report.section_excluded")] + list(self.excluded)
         if self.stale:
-            lines += ["", "--- veraltet (nicht aus diesem Lauf, mit 'Ausgabeordner leeren' entfernen) ---"]
+            lines += ["", t("report.section_stale")]
             lines += list(self.stale)
-        lines += ["", "Hinweis: Das Ergebnis vor dem Senden selbst prüfen. Die Erkennung senkt das Risiko,",
-                  "bietet aber keine 100-%-Garantie."]
+        lines += ["", t("report.note1"), t("report.note2")]
         return "\n".join(lines) + "\n"
 
     def to_dict(self) -> dict:
@@ -164,16 +169,16 @@ def safe_reason(exc: BaseException) -> str:
     if isinstance(exc, (office.OfficeError, archives.ArchiveError, pdf.PdfError)):
         return str(exc)   # diese Meldungen enthalten nie Inhalte
     if isinstance(exc, PermissionError):
-        return "keine Berechtigung"
+        return t("reason.permission")
     if isinstance(exc, FileNotFoundError):
-        return "Datei nicht gefunden"
+        return t("reason.not_found")
     if isinstance(exc, UnicodeError):
-        return f"Kodierungsfehler ({name})"
+        return t("reason.encoding_error", name=name)
     if isinstance(exc, MemoryError):
-        return "zu wenig Arbeitsspeicher"
+        return t("reason.out_of_memory")
     if isinstance(exc, OSError):
-        return f"Lese-/Schreibfehler ({name})"
-    return f"interner Fehler ({name})"
+        return t("reason.io_error", name=name)
+    return t("reason.internal", name=name)
 
 
 # ----------------------------------------------------------------------
@@ -196,7 +201,7 @@ def resolve_output_dir(input_path: Path, settings: Settings, output_dir: str | P
     input_path = Path(input_path).resolve()
     in_folder = input_path if input_path.is_dir() else input_path.parent
     if out == in_folder or out in in_folder.parents:
-        raise RunError("Der Ausgabeordner darf nicht der Eingabeordner oder ein übergeordneter Ordner sein.")
+        raise RunError(t("run.output_is_input"))
     return out
 
 
@@ -224,7 +229,7 @@ def collect_files(input_path: Path, out_root: Path, exclude=(), skipped: list | 
     if input_path.is_file():
         return [(input_path, input_path.name)]
     if not input_path.is_dir():
-        raise RunError("Eingabe nicht gefunden.")
+        raise RunError(t("run.input_not_found"))
     skipped = skipped if skipped is not None else []
     result = []
     for dirpath, dirnames, filenames in os.walk(input_path, followlinks=False):
@@ -357,8 +362,7 @@ class FileRun:
         if self.settings.process_archives:
             files, packed = self._expand_archives(files, report)
         if len(files) > self.settings.max_files_per_run:
-            raise RunError(f"Zu viele Dateien ({len(files)}), Limit max_files_per_run = "
-                           f"{self.settings.max_files_per_run}.")
+            raise RunError(t("run.too_many_files", count=len(files), limit=self.settings.max_files_per_run))
         limit = self.settings.max_file_size_mb * 1024 * 1024
         total = len(files)
 
@@ -366,7 +370,7 @@ class FileRun:
         candidates: list = []   # (Quelle, relativer Pfad, Eintrag, Kodierung)
         for src, rel in files:
             if self.cancel.is_set():
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             entry = FileEntry(rel)
             report.entries.append(entry)
@@ -374,26 +378,26 @@ class FileRun:
                 entry.size_bytes = src.stat().st_size
                 kind = office.office_kind(rel) if self.settings.process_office else None
                 if self.settings.process_office and office.is_macro_document(rel):
-                    entry.status, entry.reason = "skipped", "Dokument mit Makros (nicht unterstützt)"
+                    entry.status, entry.reason = "skipped", t("reason.macro_document")
                     continue
                 if kind:
                     encoding = f"{OFFICE_PREFIX}{kind}"
                 elif pdf.is_pdf(rel):
                     if not self.settings.process_pdf:
-                        entry.status, entry.reason = "skipped", "PDF (Verarbeitung ausgeschaltet)"
+                        entry.status, entry.reason = "skipped", t("reason.pdf_disabled")
                         continue
                     encoding = PDF_ENCODING
                 else:
                     encoding = sniff(src)
                 if encoding is None:
-                    entry.status, entry.reason = "skipped", "Binärdatei"
+                    entry.status, entry.reason = "skipped", t("reason.binary")
                     continue
                 entry.encoding = encoding
                 if entry.size_bytes > limit:
                     size_mb = entry.size_bytes / 1024 / 1024
                     if not (self.confirm_large and self.confirm_large(rel, size_mb)):
                         entry.status = "skipped"
-                        entry.reason = f"größer als {self.settings.max_file_size_mb:g} MB (max_file_size_mb)"
+                        entry.reason = t("reason.too_large", limit=f"{self.settings.max_file_size_mb:g}")
                         continue
                 candidates.append((src, rel, entry, encoding))
             except Exception as exc:  # noqa: BLE001 - jeder Fehler wird ohne Inhalt berichtet
@@ -408,8 +412,9 @@ class FileRun:
             learn = self._learn_parallel if use_parallel else self._learn_sequential
             todo = learn(candidates, report, total)
 
-        # Zielnamen (bei sanitize_filenames bereinigt; das Mapping kennt jetzt alle Werte)
-        dest_rels = self._dest_names(report) if self.settings.sanitize_filenames else {}
+        # Zielnamen (bei sanitize_filenames bereinigt; das Mapping kennt jetzt alle Werte).
+        # Die Berichtsnamen sind immer reserviert, auch ohne sanitize_filenames.
+        dest_rels = self._dest_names(report)
 
         # --- Durchlauf 2 (ersetzen + schreiben) ---
         written: set = set()     # geschriebene Zielpfade (relativ)
@@ -434,21 +439,22 @@ class FileRun:
         if report.aborted:
             for entry in report.entries:
                 if entry.status == "processed" and entry.rel_path not in done:
-                    entry.status, entry.reason = "skipped", "abgebrochen"
+                    entry.status, entry.reason = "skipped", t("reason.cancelled")
         self._report_progress(total * 2, total * 2, "")
         if packed and not dry_run:
             self._pack_archives(packed, dest_rels, done, written, out_root, report)
+        # Im Bericht nur die tatsächlichen (bereinigten bzw. umbenannten) Zielnamen
+        for entry in report.entries:
+            entry.rel_path = dest_rels.get(entry.rel_path, entry.rel_path)
         if self.settings.sanitize_filenames:
-            # Im Bericht nur die bereinigten Namen
-            for entry in report.entries:
-                entry.rel_path = dest_rels.get(entry.rel_path, entry.rel_path)
             report.excluded = [self._sanitize_rel(x) for x in report.excluded]
         if not dry_run:
             report.stale = find_stale(out_root, written)
         report.finished = _now()
         if write_report:
             out_root.mkdir(parents=True, exist_ok=True)
-            _write_text_atomic(out_root / REPORT_NAME, report.to_text(), "utf-8", "\n")
+            _write_text_atomic(out_root / report_name(), report.to_text(), "utf-8", "\n")
+            _remove_other_reports(out_root, written)
         return report, out_root
 
     # ------------------------------------------------------------------
@@ -458,14 +464,14 @@ class FileRun:
         todo = []
         for i, (src, rel, entry, encoding) in enumerate(candidates):
             if self.cancel.is_set():
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             self._report_progress(i, total * 2, rel)
             try:
                 entry.encoding = self._learn_file(src, encoding)
                 todo.append((src, rel, entry))
             except _Cancelled:
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             except pdf.PdfSkipped as exc:
                 entry.status, entry.reason = "skipped", str(exc)
@@ -482,11 +488,11 @@ class FileRun:
 
         jobs = [(i, (str(src), encoding)) for i, (src, _rel, _entry, encoding) in enumerate(candidates)
                 if not _in_main_process(encoding)]
-        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, None)
+        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, None, current_language())
         parallel.run_tasks(parallel._learn_task, jobs, parallel.worker_count(self.settings), initargs,
                            self.cancel, on_done)
         if self.cancel.is_set():
-            report.aborted = "vom Benutzer abgebrochen"
+            report.aborted = t("reason.cancelled_by_user")
         todo = []
         # Platzhalter in fester Dateireihenfolge vergeben (wie mit einem Kern)
         for i, (src, rel, entry, encoding) in enumerate(candidates):
@@ -519,7 +525,7 @@ class FileRun:
                           written: set, done: set) -> None:
         for i, (src, rel, entry, dest_rel) in enumerate(jobs):
             if self.cancel.is_set():
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             self._report_progress(total + i, total * 2, rel)
             try:
@@ -527,7 +533,7 @@ class FileRun:
                 written.add(dest_rel)
                 done.add(rel)
             except _Cancelled:
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             except Exception as exc:  # noqa: BLE001
                 entry.status, entry.reason = "failed", safe_reason(exc)
@@ -549,11 +555,11 @@ class FileRun:
                 continue
             dest = None if dry_run else str(out_root / dest_rel)
             tasks.append((i, (str(src), dest, entry.encoding)))
-        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, blob)
+        initargs = (self.settings, self.sanitizer.ruleset, self.exclude, blob, current_language())
         parallel.run_tasks(parallel._write_task, tasks, parallel.worker_count(self.settings), initargs,
                            self.cancel, on_done)
         if self.cancel.is_set():
-            report.aborted = "vom Benutzer abgebrochen"
+            report.aborted = t("reason.cancelled_by_user")
         results = []
         office_jobs = []
         for i, (src, rel, entry, dest_rel) in enumerate(jobs):
@@ -584,7 +590,7 @@ class FileRun:
         before = len(self.sanitizer.mapping._originals)
         for src, rel, entry, dest_rel in office_jobs:
             if self.cancel.is_set():
-                report.aborted = "vom Benutzer abgebrochen"
+                report.aborted = t("reason.cancelled_by_user")
                 break
             try:
                 self._process_one(src, entry, None if dry_run else out_root / dest_rel, report)
@@ -645,8 +651,7 @@ class FileRun:
             try:
                 archives.pack(kind, folder, out_root / archive_dest)
             except Exception as exc:  # noqa: BLE001
-                report.entries.append(FileEntry(rel, status="failed", reason=f"Einpacken fehlgeschlagen "
-                                                                              f"({safe_reason(exc)})"))
+                report.entries.append(FileEntry(rel, status="failed", reason=t("reason.pack_failed", reason=safe_reason(exc))))
                 continue
             for m in finished:
                 written.discard(dest_rels.get(m, m))
@@ -658,12 +663,15 @@ class FileRun:
         return "/".join(parts) + trailing
 
     def _dest_names(self, report: Report) -> dict:
-        """Relativer Quellpfad -> bereinigter Zielpfad, ohne Kollisionen."""
+        """Relativer Quellpfad -> Zielpfad ohne Kollisionen. Ohne sanitize_filenames bleiben die
+        Namen unverändert, nur Dateien mit einem Berichtsnamen werden umbenannt."""
+        sanitize = self.settings.sanitize_filenames
+        report_names = {name.lower() for name in REPORT_NAMES.values()}
         names: dict = {}
-        used: set = {REPORT_NAME.lower()}
+        used: set = set(report_names)
         for entry in report.entries:
-            dest = self._sanitize_rel(entry.rel_path)
-            if dest.lower() in used:
+            dest = self._sanitize_rel(entry.rel_path) if sanitize else entry.rel_path
+            if dest.lower() in used and (sanitize or dest.lower() in report_names):
                 folder, _, name = dest.rpartition("/")
                 stem, dot, suffix = name.rpartition(".") if "." in name.lstrip(".") else (name, "", "")
                 n = 2
@@ -675,7 +683,8 @@ class FileRun:
                         break
                     n += 1
             used.add(dest.lower())
-            names[entry.rel_path] = dest
+            if sanitize or dest != entry.rel_path:
+                names[entry.rel_path] = dest
         return names
 
     def _learn_file(self, src: Path, encoding: str) -> str:
@@ -818,7 +827,7 @@ def write_file(sanitizer, src: Path, dest: Path, encoding: str, settings, exclud
     Umbenennen gefragt; lehnt es ab, bleibt keine Ausgabe liegen und
     NewValuesFound wird ausgelöst."""
     if dest.resolve() == src.resolve():
-        raise RunError("Ausgabe würde Original überschreiben")  # pragma: no cover (durch resolve_output_dir verhindert)
+        raise RunError(t("run.would_overwrite"))  # pragma: no cover (durch resolve_output_dir verhindert)
     out_encoding = output_encoding_for(encoding, settings.output_encoding)
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=str(dest.parent))
@@ -843,10 +852,9 @@ def check_clearable(out_root: Path) -> None:
     if not out_root.exists():
         return
     if not out_root.is_dir():
-        raise RunError("Der Ausgabeordner ist eine Datei.")
-    if any(out_root.iterdir()) and not (out_root / REPORT_NAME).is_file():
-        raise RunError("Der Ausgabeordner wird nicht geleert: Er ist nicht leer und enthält keinen Bericht "
-                       f"({REPORT_NAME}) eines früheren Laufs. Bitte einen anderen Ordner wählen.")
+        raise RunError(t("run.output_is_file"))
+    if any(out_root.iterdir()) and not any((out_root / name).is_file() for name in REPORT_NAMES.values()):
+        raise RunError(t("run.not_clearable", names=" / ".join(REPORT_NAMES.values())))
 
 
 def clear_output_dir(out_root: Path) -> None:
@@ -860,6 +868,20 @@ def clear_output_dir(out_root: Path) -> None:
             child.unlink()
 
 
+def _remove_other_reports(out_root: Path, written: set = frozenset()) -> None:
+    """Löscht den Bericht der anderen Sprache direkt im Ausgabeordner (nach dem Schreiben des neuen).
+    Nur Dateien mit genau einem der beiden Berichtsnamen, nie in Unterordnern."""
+    for name in REPORT_NAMES.values():
+        if name == report_name() or name in written:   # nie eine in diesem Lauf geschriebene Datei löschen
+            continue
+        other = out_root / name
+        try:
+            if other.is_file() and not other.is_symlink():
+                other.unlink()
+        except OSError:
+            pass
+
+
 def find_stale(out_root: Path, written: set) -> list[str]:
     """Dateien im Ausgabeordner, die dieser Lauf nicht geschrieben hat."""
     if not out_root.is_dir():
@@ -869,7 +891,7 @@ def find_stale(out_root: Path, written: set) -> list[str]:
         if not path.is_file():
             continue
         rel = path.relative_to(out_root).as_posix()
-        if rel == REPORT_NAME or rel in written or path.name.startswith(".tmp_"):
+        if rel in REPORT_NAMES.values() or rel in written or path.name.startswith(".tmp_"):
             continue
         stale.append(rel)
     return stale
@@ -966,7 +988,7 @@ def load_text_file(path: Path) -> LoadedText:
     data = path.read_bytes()
     encoding = detect_encoding(data[:SAMPLE_SIZE])
     if encoding is None:
-        raise RunError("Binärdatei, wird nicht verarbeitet.")
+        raise RunError(t("run.binary_file"))
     for enc in _encoding_candidates(encoding):
         try:
             raw = data.decode(enc)
@@ -985,7 +1007,7 @@ def save_sanitized_text(src: Path, sanitized_text: str, loaded: LoadedText, sett
     out_root = resolve_output_dir(src, settings, output_dir)
     dest = out_root / (name or src.name)
     if dest.resolve() == src:
-        raise RunError("Ausgabe würde Original überschreiben.")
+        raise RunError(t("run.would_overwrite_dot"))
     _write_text_atomic(dest, sanitized_text, output_encoding_for(loaded.encoding, settings.output_encoding),
                        loaded.newline)
     return dest

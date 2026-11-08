@@ -15,7 +15,7 @@ from xml.dom import minidom
 from tests.helpers import SECRETS, SecretAssertions, TempDirTestCase, make_sanitizer
 
 from secret_sanitizer.core import office
-from secret_sanitizer.core.files import REPORT_NAME, FileRun
+from secret_sanitizer.core.files import FileRun, report_name
 
 S = SECRETS
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -199,7 +199,7 @@ class OfficeTests(SecretAssertions, TempDirTestCase):
         # gleicher Host in der Textdatei -> gleicher Platzhalter (gemeinsames Mapping)
         placeholder = re.search(r"Server (\[HOSTNAME_\d+\])", doc).group(1)
         self.assertIn(placeholder, (out / "notiz.txt").read_text(encoding="utf-8"))
-        self.assertIn("Bild(er)/Objekt(e) entfernt", (out / REPORT_NAME).read_text(encoding="utf-8"))
+        self.assertIn("Bild(er)/Objekt(e) entfernt", (out / report_name()).read_text(encoding="utf-8"))
 
     def test_xlsx_sheet_names_and_formulas(self):
         build(self.input / "tabelle.xlsx", xlsx_parts())

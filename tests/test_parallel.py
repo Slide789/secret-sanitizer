@@ -15,9 +15,10 @@ from unittest import mock
 
 from tests.helpers import SECRETS, SecretAssertions, TempDirTestCase, copy_fake_data, make_sanitizer
 
+from secret_sanitizer import i18n
 from secret_sanitizer.core import files as files_mod
 from secret_sanitizer.core import parallel
-from secret_sanitizer.core.files import REPORT_NAME, FileRun
+from secret_sanitizer.core.files import FileRun, report_name
 from secret_sanitizer.core.replacer import PlaceholderMapping
 
 S = SECRETS
@@ -34,7 +35,7 @@ def _digest(path: Path) -> str:
 
 def tree(folder: Path) -> dict:
     return {p.relative_to(folder).as_posix(): _digest(p)
-            for p in sorted(folder.rglob("*")) if p.is_file() and p.name != REPORT_NAME}
+            for p in sorted(folder.rglob("*")) if p.is_file() and p.name != report_name()}
 
 
 def no_thresholds():
@@ -73,6 +74,18 @@ class ParallelRunTests(SecretAssertions, TempDirTestCase):
             self.assertEqual(seq_san.mapping.placeholders(), par_san.mapping.placeholders())
             for path in par_out.rglob("*.log"):
                 self.assertNoSecrets(path.read_text(encoding="utf-8"), msg=str(path))
+
+    def test_parallel_messages_in_english(self):
+        i18n.set_language("en")
+        self.addCleanup(i18n.set_language, "de")
+        (self.input / "kaputt.bin").write_bytes(bytes([0, 1, 2]) * 50)
+        report, out, _ = self.run_with(2, "en")
+        self.assertEqual(report.workers, 2)
+        text = (out / "secret_sanitizer_report.txt").read_text(encoding="utf-8")
+        for german in ("Dateien", "Ersetzt", "Bearbeitet", "Übersprungen", "Binärdatei", "Hinweis"):
+            self.assertNotIn(german, text)
+        for english in ("Processed", "Skipped", "Replacements total", "binary file", "Note:"):
+            self.assertIn(english, text)
 
     def test_check_mode_parallel(self):
         sanitizer = make_sanitizer(workers=2)
@@ -127,7 +140,7 @@ class WorkerTaskTests(TempDirTestCase):
         dest = self.tmp / "aus" / "a.log"
         sanitizer = make_sanitizer()
         empty = pickle.dumps(PlaceholderMapping(sanitizer.settings.placeholder_style))
-        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), empty, threading.Event())
+        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), empty, "de", threading.Event())
         self.assertIsNone(parallel._write_task(str(src), str(dest), "utf-8"))
         self.assertFalse(dest.exists())
         self.assertFalse(list(dest.parent.glob(".tmp_*")))
@@ -138,13 +151,21 @@ class WorkerTaskTests(TempDirTestCase):
         full = PlaceholderMapping(sanitizer.settings.placeholder_style)
         for value, category in values:
             full.placeholder_for(value, category)
-        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), pickle.dumps(full), threading.Event())
+        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), pickle.dumps(full), "de", threading.Event())
         counts, samples = parallel._write_task(str(src), str(dest), used)
         self.assertEqual(counts, {"PASSWORD": 1})
         self.assertEqual(dest.read_text(encoding="utf-8"), "password=[PASSWORD_1]\n")
 
+    def test_init_worker_sets_language(self):
+        self.addCleanup(i18n.set_language, "de")
+        sanitizer = make_sanitizer()
+        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), None, "en", threading.Event())
+        self.assertEqual(i18n.current_language(), "en")
+        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), None, "de", threading.Event())
+        self.assertEqual(i18n.current_language(), "de")
+
     def _learn(self, src, sanitizer):
-        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), None, threading.Event())
+        parallel._init_worker(sanitizer.settings, sanitizer.ruleset, (), None, "de", threading.Event())
         return parallel._learn_task(str(src), "utf-8")
 
     def tearDown(self):

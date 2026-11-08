@@ -12,8 +12,10 @@ from unittest import mock
 
 from tests.helpers import SECRETS, SecretAssertions, TempDirTestCase, copy_fake_data, default_ruleset, make_sanitizer
 
+from secret_sanitizer import i18n
+from secret_sanitizer.config import APP_NAME
 from secret_sanitizer.core import files as files_mod
-from secret_sanitizer.core.files import (REPORT_NAME, FileRun, RunError, default_output_dir, load_text_file,
+from secret_sanitizer.core.files import (REPORT_NAMES, FileRun, RunError, default_output_dir, load_text_file, report_name,
                                          save_sanitized_text)
 from secret_sanitizer.core.rules import Wordlist
 
@@ -51,7 +53,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         self.assertEqual(tree_hashes(self.input), self.before)
         # Gleiche Struktur
         expected = {k for k in self.before if not k.startswith("binary/")}
-        produced = {k for k in tree_hashes(out) if k != REPORT_NAME}
+        produced = {k for k in tree_hashes(out) if k != report_name()}
         self.assertEqual(produced, expected)
         # Keine Secrets in irgendeiner Ausgabe
         for path in out.rglob("*"):
@@ -64,7 +66,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
 
     def test_report_contains_no_secrets(self):
         report, out = self.run_folder()
-        text = (out / REPORT_NAME).read_text(encoding="utf-8")
+        text = (out / report_name()).read_text(encoding="utf-8")
         self.assertIn("bearbeitet", text)
         self.assertIn("linux/auth.log", text)
         self.assertNoSecrets(text)
@@ -126,7 +128,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         self.assertFalse((out / ".git").exists())
         self.assertFalse((out / "linux" / "notiz.bak").exists())
         self.assertFalse([e for e in report.entries if e.rel_path.startswith((".git", "alt_"))])
-        self.assertIn("Ausgeschlossen (Ausschlussmuster): 3", (out / REPORT_NAME).read_text(encoding="utf-8"))
+        self.assertIn("Ausgeschlossen (Ausschlussmuster): 3", (out / report_name()).read_text(encoding="utf-8"))
         # Pfadmuster und abgeschaltete Muster
         report, _ = FileRun(make_sanitizer(exclude_patterns=["linux/*.log"])).run(self.input, output_dir=self.tmp / "b")
         self.assertIn("linux/auth.log", report.excluded)
@@ -140,7 +142,72 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         (self.input / "linux" / "auth.log").unlink()
         report, _ = FileRun(make_sanitizer()).run(self.input, output_dir=out)
         self.assertEqual(report.stale, ["linux/auth.log"])
-        self.assertIn("veraltet", (out / REPORT_NAME).read_text(encoding="utf-8"))
+        self.assertIn("veraltet", (out / report_name()).read_text(encoding="utf-8"))
+
+    def _use_english(self):
+        i18n.set_language("en")
+        self.addCleanup(i18n.set_language, "de")
+
+    def test_report_name_per_language(self):
+        self.assertEqual(report_name(), "secret_sanitizer_bericht.txt")
+        self._use_english()
+        self.assertEqual(report_name(), "secret_sanitizer_report.txt")
+        report, out = self.run_folder()
+        text = (out / "secret_sanitizer_report.txt").read_text(encoding="utf-8")
+        self.assertIn(i18n.t("report.title", app=APP_NAME), text)
+        self.assertFalse((out / "secret_sanitizer_bericht.txt").exists())
+        i18n.set_language("de")
+        self.assertNotIn(i18n.t("report.title", app=APP_NAME), text)
+        self.assertNotIn("Bericht", text)
+        self.assertNotIn("Bearbeitet", text)
+
+    def test_old_report_other_language_is_replaced(self):
+        out = self.tmp / "aus"
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        self.assertTrue((out / "secret_sanitizer_bericht.txt").is_file())
+        self._use_english()
+        report, _ = FileRun(make_sanitizer()).run(self.input, output_dir=out, clean_output=True)
+        self.assertTrue(report.cleaned)
+        self.assertTrue((out / "secret_sanitizer_report.txt").is_file())
+        self.assertFalse((out / "secret_sanitizer_bericht.txt").exists())
+
+    def test_other_report_not_stale(self):
+        out = self.tmp / "aus"
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        self._use_english()
+        report, _ = FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        self.assertFalse(set(report.stale) & set(REPORT_NAMES.values()))
+        self.assertFalse((out / "secret_sanitizer_bericht.txt").exists())
+        self.assertTrue((out / "secret_sanitizer_report.txt").is_file())
+
+    def test_other_report_in_subfolder_is_kept(self):
+        out = self.tmp / "aus"
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        (out / "unter").mkdir()
+        (out / "unter" / "secret_sanitizer_report.txt").write_text("x", encoding="utf-8")
+        self._use_english()
+        FileRun(make_sanitizer()).run(self.input, output_dir=out)
+        self.assertTrue((out / "unter" / "secret_sanitizer_report.txt").is_file())
+
+    def test_input_named_like_report_gets_renamed(self):
+        for lang in ("de", "en"):
+            for sanitize in (False, True):
+                for name in REPORT_NAMES.values():
+                    with self.subTest(lang=lang, sanitize=sanitize, name=name):
+                        i18n.set_language(lang)
+                        self.addCleanup(i18n.set_language, "de")
+                        src = self.tmp / f"ein_{lang}_{int(sanitize)}_{name}"
+                        src.mkdir()
+                        (src / name).write_text(f"password={S['db_password']}\n", encoding="utf-8")
+                        (src / "b.log").write_text("x\n", encoding="utf-8")
+                        report, out = FileRun(make_sanitizer(sanitize_filenames=sanitize)).run(src)
+                        renamed = name.replace(".txt", " (2).txt")
+                        self.assertEqual((out / renamed).read_text(encoding="utf-8"), "password=[PASSWORD_1]\n")
+                        self.assertIn(renamed, [e.rel_path for e in report.entries])
+                        self.assertIn(i18n.t("report.title", app=APP_NAME),
+                                      (out / report_name()).read_text(encoding="utf-8"))
+                        self.assertTrue((out / "b.log").is_file())
+        i18n.set_language("de")
 
     def test_clean_output(self):
         out = self.tmp / "aus"
@@ -174,7 +241,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         self.assertTrue((out / f"{placeholder}.log").exists())
         for path in out.rglob("*"):
             self.assertNotIn(host.lower(), path.name.lower())
-        text = (out / REPORT_NAME).read_text(encoding="utf-8")
+        text = (out / report_name()).read_text(encoding="utf-8")
         self.assertNotIn(host.lower(), text.lower())   # auch nicht bei übersprungenen Dateien
         self.assertIn(f"binary/{placeholder}.png", text)
         self.assertEqual(report.stale, [])
@@ -187,7 +254,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         (src / "sicherung_srv02.corp.local.tar").write_text("x\n", encoding="utf-8")
         (src / "README.md").write_text("x\n", encoding="utf-8")
         _, out = FileRun(make_sanitizer(sanitize_filenames=True, process_archives=False)).run(src)
-        names = sorted(p.name for p in out.iterdir() if p.name != REPORT_NAME)
+        names = sorted(p.name for p in out.iterdir() if p.name != report_name())
         self.assertEqual(names, ["README.md", "[HOSTNAME_2].log", "sicherung_[HOSTNAME_1].tar"])
 
     def test_sanitized_filename_collisions(self):
@@ -198,7 +265,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         for name in ("10.1.2.3.log", "[IP_1].log"):
             (src / name).write_text("x\n", encoding="utf-8")
         report, out = FileRun(make_sanitizer(sanitize_filenames=True)).run(src)
-        names = sorted(p.name for p in out.iterdir() if p.name != REPORT_NAME)
+        names = sorted(p.name for p in out.iterdir() if p.name != report_name())
         self.assertEqual(names, ["[IP_1] (2).log", "[IP_1].log"])
 
     def test_exclude_does_not_apply_to_single_file(self):
@@ -232,7 +299,7 @@ class FolderRunTests(SecretAssertions, TempDirTestCase):
         failed = report.by_status("failed")
         self.assertEqual([e.rel_path for e in failed], ["mixed/notes.txt"])
         self.assertNotIn(secret, failed[0].reason)
-        self.assertNotIn(secret, (out / REPORT_NAME).read_text(encoding="utf-8"))
+        self.assertNotIn(secret, (out / report_name()).read_text(encoding="utf-8"))
 
     def test_cancel(self):
         cancel = threading.Event()
@@ -331,7 +398,7 @@ class ArchiveTests(SecretAssertions, TempDirTestCase):
         self.assertTrue(archive.is_file(), sorted(p.name for p in out.iterdir()))
         with zipfile.ZipFile(archive) as zf:
             self.assertEqual(zf.namelist(), [f"{placeholder}.log"])
-        self.assertNotIn(host, (out / REPORT_NAME).read_text(encoding="utf-8"))
+        self.assertNotIn(host, (out / report_name()).read_text(encoding="utf-8"))
 
 
 class ChunkingTests(SecretAssertions, TempDirTestCase):

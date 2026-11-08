@@ -21,6 +21,8 @@ import os
 import sys
 from pathlib import Path
 
+from ..i18n import t
+
 MAX_PAGES = 5000
 PAGE_SEPARATOR = "\n\n"
 
@@ -77,27 +79,27 @@ def _extract_child(path: str, max_chars: int, max_bytes: int, conn) -> None:
             # Viele PDFs sind nur "verschlüsselt" mit leerem Kennwort (Rechte-Einschränkung)
             try:
                 if not reader.decrypt(""):
-                    conn.send(("skip", "PDF ist mit Kennwort verschlüsselt"))
+                    conn.send(("skip", ("pdf.password", None)))
                     return
             except Exception:  # noqa: BLE001
-                conn.send(("skip", "PDF ist verschlüsselt (Verfahren nicht unterstützt)"))
+                conn.send(("skip", ("pdf.encrypted_unsupported", None)))
                 return
         if len(reader.pages) > MAX_PAGES:
-            conn.send(("error", f"PDF hat mehr als {MAX_PAGES} Seiten"))
+            conn.send(("error", ("pdf.too_many_pages", None)))
             return
         parts, total = [], 0
         for page in reader.pages:
             text = page.extract_text() or ""
             total += len(text)
             if total > max_chars:
-                conn.send(("error", "Text der PDF zu groß (max_file_size_mb)"))
+                conn.send(("error", ("pdf.too_large", None)))
                 return
             parts.append(text.strip())
         conn.send(("ok", PAGE_SEPARATOR.join(p for p in parts if p) + "\n"))
     except MemoryError:
-        conn.send(("error", "PDF braucht zu viel Speicher"))
+        conn.send(("error", ("pdf.memory", None)))
     except Exception as exc:  # noqa: BLE001 - nur die Fehlerart, nie den Text
-        conn.send(("error", f"PDF beschädigt oder nicht lesbar ({type(exc).__name__})"))
+        conn.send(("error", ("pdf.broken", type(exc).__name__)))
     finally:
         conn.close()
 
@@ -162,7 +164,7 @@ def _close_job(job) -> None:
 def extract_text(src: Path, settings) -> str:
     """Text einer PDF (Seiten durch Leerzeilen getrennt). Wirft PdfError."""
     if not available():
-        raise PdfSkipped("PDF-Unterstützung nicht installiert (Paket pypdf fehlt)")
+        raise PdfSkipped(t("pdf.missing_library"))
     timeout = float(getattr(settings, "pdf_timeout_s", 60))
     max_bytes = int(getattr(settings, "pdf_max_memory_mb", 1024)) * 1024 * 1024
     max_chars = int(settings.max_file_size_mb * 1024 * 1024)
@@ -174,21 +176,21 @@ def extract_text(src: Path, settings) -> str:
     job = _windows_job(process.pid, max_bytes)
     try:
         if not receive.poll(timeout):
-            raise PdfError(f"Zeitlimit beim Lesen der PDF überschritten ({timeout:g} s)")
+            raise PdfError(t("pdf.timeout", seconds=f"{timeout:g}"))
         try:
             status, value = receive.recv()
         except EOFError:
-            raise PdfError("PDF braucht zu viel Speicher oder hat den Leser abstürzen lassen") from None
+            raise PdfError(t("pdf.crashed")) from None
     finally:
         receive.close()
         if process.is_alive():
             process.terminate()
         process.join(5)
         _close_job(job)
-    if status == "skip":
-        raise PdfSkipped(value)
     if status != "ok":
-        raise PdfError(value)
+        key, name = value   # Schlüssel + Fehlerart aus dem Kindprozess
+        message = t(key, max_pages=MAX_PAGES, name=name or "")
+        raise (PdfSkipped if status == "skip" else PdfError)(message)
     if not value.strip():
-        raise PdfSkipped("kein Text in der PDF (gescannt?)")
+        raise PdfSkipped(t("pdf.no_text"))
     return value

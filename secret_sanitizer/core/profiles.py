@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import APP_NAME, MODES, config_dir, write_json_atomic
+from ..i18n import t
 from .models import CATEGORIES
 from .rules import (RuleError, UserRules, allow_from_dict, redos_risk, rule_from_dict, wordlist_from_dict)
 
@@ -56,7 +57,7 @@ def valid_profile_name(name: str) -> bool:
 
 def profile_path(name: str) -> Path:
     if not valid_profile_name(name):
-        raise ProfileError("Ungültiger Profilname (erlaubt: Buchstaben, Ziffern, Leerzeichen, - _ ., max. 60 Zeichen).")
+        raise ProfileError(t("profile.invalid_name"))
     return profiles_dir() / f"{name.strip()}.json"
 
 
@@ -110,29 +111,29 @@ def load_profile(path: Path) -> Profile:
     try:
         size = path.stat().st_size
     except OSError as exc:
-        raise ProfileError(f"Profil kann nicht gelesen werden ({type(exc).__name__}).") from None
+        raise ProfileError(t("profile.unreadable", name=type(exc).__name__)) from None
     if size > MAX_PROFILE_BYTES:
-        raise ProfileError(f"Profil ist zu groß (über {MAX_PROFILE_BYTES // (1024 * 1024)} MB).")
+        raise ProfileError(t("profile.too_large", mb=MAX_PROFILE_BYTES // (1024 * 1024)))
     try:
         with open(path, "r", encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
-        raise ProfileError(f"Profil ist kein gültiges JSON ({type(exc).__name__}).") from None
+        raise ProfileError(t("profile.bad_json", name=type(exc).__name__)) from None
     if not isinstance(data, dict) or data.get("type") != PROFILE_TYPE:
-        raise ProfileError("Die Datei ist kein Profil dieses Programms.")
+        raise ProfileError(t("profile.not_a_profile"))
     version = data.get("version")
     if not isinstance(version, int) or version < 1:
-        raise ProfileError("Profil ohne gültige Formatversion.")
+        raise ProfileError(t("profile.no_version"))
     if version > FORMAT_VERSION:
-        raise ProfileError(f"Profil stammt aus einer neueren Programmversion (Format {version}).")
+        raise ProfileError(t("profile.newer_version", version=version))
 
     warnings: list = []
     unknown = sorted(set(data) - _KNOWN_KEYS)
     if unknown:
-        warnings.append("Unbekannte Felder werden ignoriert: " + ", ".join(unknown[:10]))
+        warnings.append(t("profile.unknown_fields", fields=", ".join(unknown[:10])))
     for key in ("rules", "wordlists", "allowlist"):
         if key in data and not isinstance(data[key], list):
-            raise ProfileError(f"Feld '{key}' ist keine Liste.")
+            raise ProfileError(t("profile.not_a_list", field=key))
 
     def parse(items, parser):
         out = []
@@ -140,7 +141,7 @@ def load_profile(path: Path) -> Profile:
             try:
                 out.append(parser(item))
             except (RuleError, AttributeError, TypeError) as exc:
-                warnings.append(str(exc) if isinstance(exc, RuleError) else "Ungültiger Eintrag übersprungen")
+                warnings.append(str(exc) if isinstance(exc, RuleError) else t("profile.invalid_entry"))
         return out
 
     rules = UserRules(rules=parse(data.get("rules"), rule_from_dict),
@@ -148,10 +149,10 @@ def load_profile(path: Path) -> Profile:
                       allowlist=parse(data.get("allowlist"), allow_from_dict))
     for rule in rules.rules:
         if redos_risk(rule.pattern):
-            warnings.append(f"Regel '{rule.id}': Muster kann sehr langsam werden (verschachtelte Wiederholung)")
+            warnings.append(t("ruleerr.slow_rule", id=rule.id))
     for entry in rules.allowlist:
         if entry.regex and redos_risk(entry.value):
-            warnings.append("Allowlist: ein regulärer Ausdruck kann sehr langsam werden")
+            warnings.append(t("profile.slow_allow"))
 
     settings = None
     raw_settings = data.get("settings")

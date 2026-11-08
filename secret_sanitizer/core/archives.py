@@ -20,6 +20,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+from ..i18n import t
+
 COPY_BLOCK = 1024 * 1024
 
 
@@ -65,10 +67,10 @@ class _Budget:
     def take(self, declared: int) -> None:
         self.members += 1
         if self.members > self.max_members:
-            raise ArchiveError("zu viele Einträge im Archiv (max_files_per_run)")
+            raise ArchiveError(t("archive.too_many_entries"))
         self.total += max(0, declared)
         if self.total > self.max_total:
-            raise ArchiveError("Archiv entpackt zu groß (max_archive_mb)")
+            raise ArchiveError(t("archive.too_large"))
 
 
 def _copy_limited(fin, target: Path, limit: int) -> bool:
@@ -112,20 +114,20 @@ def extract(src: Path, kind: str, target: Path, max_member: int, max_total: int,
                         continue
                     name = safe_member_name(info.filename)
                     if name is None:
-                        skipped.append((info.filename.replace("\\", "/"), "unsicherer Pfad im Archiv"))
+                        skipped.append((info.filename.replace("\\", "/"), t("archive.unsafe_path")))
                         continue
                     if info.flag_bits & 0x1:
-                        skipped.append((name, "verschlüsselt"))
+                        skipped.append((name, t("archive.encrypted")))
                         continue
                     if info.file_size > max_member:
-                        skipped.append((name, "zu groß (max_file_size_mb)"))
+                        skipped.append((name, t("archive.member_too_large")))
                         continue
                     budget.take(info.file_size)
                     with zf.open(info) as fin:
                         if _copy_limited(fin, place(name), max_member):
                             extracted.append((name, target / name))
                         else:
-                            skipped.append((name, "zu groß (max_file_size_mb)"))
+                            skipped.append((name, t("archive.member_too_large")))
         elif kind in ("tar", "tgz"):
             with tarfile.open(src, "r:*") as tf:
                 for member in tf:
@@ -133,24 +135,24 @@ def extract(src: Path, kind: str, target: Path, max_member: int, max_total: int,
                         continue
                     name = safe_member_name(member.name)
                     if name is None:
-                        skipped.append((member.name, "unsicherer Pfad im Archiv"))
+                        skipped.append((member.name, t("archive.unsafe_path")))
                         continue
                     if not member.isfile():
-                        skipped.append((name, "kein normaler Eintrag (Link o. Ä.)"))
+                        skipped.append((name, t("archive.not_regular")))
                         continue
                     if member.size > max_member:
-                        skipped.append((name, "zu groß (max_file_size_mb)"))
+                        skipped.append((name, t("archive.member_too_large")))
                         continue
                     budget.take(member.size)
                     fin = tf.extractfile(member)
                     if fin is None:
-                        skipped.append((name, "nicht lesbar"))
+                        skipped.append((name, t("archive.unreadable_member")))
                         continue
                     with fin:
                         if _copy_limited(fin, place(name), max_member):
                             extracted.append((name, target / name))
                         else:
-                            skipped.append((name, "zu groß (max_file_size_mb)"))
+                            skipped.append((name, t("archive.member_too_large")))
         elif kind == "gz":
             name = _gz_member_name(src.name)
             budget.take(0)
@@ -158,15 +160,15 @@ def extract(src: Path, kind: str, target: Path, max_member: int, max_total: int,
                 if _copy_limited(fin, place(name), min(max_member, max_total)):
                     extracted.append((name, target / name))
                 else:
-                    skipped.append((name, "zu groß (max_file_size_mb)"))
+                    skipped.append((name, t("archive.member_too_large")))
         else:  # pragma: no cover
-            raise ArchiveError("unbekannter Archivtyp")
+            raise ArchiveError(t("archive.unknown_type"))
     except ArchiveError:
         raise
     except (zipfile.BadZipFile, tarfile.TarError, gzip.BadGzipFile, EOFError) as exc:
-        raise ArchiveError(f"Archiv beschädigt oder nicht lesbar ({type(exc).__name__})") from None
+        raise ArchiveError(t("archive.corrupt", name=type(exc).__name__)) from None
     except RuntimeError as exc:  # z. B. zipfile: "File is encrypted"
-        raise ArchiveError(f"Archiv nicht lesbar ({type(exc).__name__})") from None
+        raise ArchiveError(t("archive.unreadable", name=type(exc).__name__)) from None
     return extracted, skipped
 
 
@@ -196,7 +198,7 @@ def pack(kind: str, folder: Path, dest: Path) -> None:
                     with open(path, "rb") as fin:
                         shutil.copyfileobj(fin, gz, COPY_BLOCK)
         else:  # pragma: no cover
-            raise ArchiveError("unbekannter Archivtyp")
+            raise ArchiveError(t("archive.unknown_type"))
         shutil.rmtree(folder)
         tmp.replace(dest)
     except BaseException:

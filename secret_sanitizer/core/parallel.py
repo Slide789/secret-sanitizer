@@ -50,8 +50,11 @@ def should_parallelize(settings, file_count: int, total_bytes: int) -> bool:
 # Im Worker-Prozess
 # ----------------------------------------------------------------------
 
-def _init_worker(settings, ruleset, exclude, mapping_blob, cancel_event) -> None:
+def _init_worker(settings, ruleset, exclude, mapping_blob, language, cancel_event) -> None:
+    from ..i18n import set_language
     from .pipeline import Sanitizer
+
+    set_language(language)   # der gestartete (spawn) Prozess kennt die Sprache des Hauptprozesses nicht
 
     sanitizer = Sanitizer(settings, ruleset)
     _W.update(sanitizer=sanitizer, settings=settings, exclude=tuple(exclude), cancel=cancel_event,
