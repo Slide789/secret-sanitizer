@@ -43,7 +43,7 @@ Die .exe enthält alles, was das Programm braucht. Python muss nicht installiert
    auf „Trotzdem ausführen“. In Firmenumgebungen muss die IT die Datei eventuell freigeben.
 4. Optional für die Kommandozeile: `secret_sanitizer_cli.exe` daneben legen (siehe [Kommandozeile](#6-kommandozeile)).
 
-Deinstallieren: die .exe-Dateien löschen. Wenn du auch die Einstellungen entfernen willst, lösche zusätzlich den
+Deinstallieren: die .exe-Dateien löschen. Wenn auch die Einstellungen weg sollen, lösch zusätzlich den
 Ordner `%APPDATA%\secret_sanitizer` (dazu `%APPDATA%\secret_sanitizer` in die Adresszeile des Explorers eingeben).
 
 ## 2. Installation aus dem Quellcode
@@ -72,8 +72,8 @@ Voraussetzung: Python 3.10 oder neuer.
    ```
    Ohne Argumente startet die Oberfläche, mit Argumenten die Kommandozeile (`python -m secret_sanitizer --help`).
 
-Erkennung, Regeln und Kommandozeile kommen ohne Zusatzpakete aus. Für reine Kommandozeilen-Nutzung kannst du
-Schritt 4 also überspringen. Ohne `pypdf` werden PDFs übersprungen, ohne `tkinterdnd2` gibt es kein Drag & Drop.
+Erkennung, Regeln und Kommandozeile kommen ohne Zusatzpakete aus. Wer nur die Kommandozeile braucht, kann
+Schritt 4 überspringen. Ohne `pypdf` werden PDFs übersprungen, ohne `tkinterdnd2` gibt es kein Drag & Drop.
 Zur Laufzeit lädt das Programm nie etwas aus dem Internet nach; die Pakete stecken in der .exe.
 
 ## 3. Die .exe selbst bauen
@@ -374,7 +374,7 @@ Die Einstellungen liegen im Benutzerordner, nicht im Programmordner:
 | `process_pdf` | `true` | Text aus PDFs als bereinigte `.pdf.txt` ausgeben |
 | `pdf_timeout_s` / `pdf_max_memory_mb` | `60` / `1024` | Zeit- und Speicherlimit beim Lesen einer PDF |
 
-Eigene Regeln am besten in der Oberfläche anlegen (Reiter „Regeln“). Das Format von `user_rules.json`:
+Eigene Regeln legst du am einfachsten im Reiter „Regeln“ an. So sieht `user_rules.json` aus:
 
 ```json
 {
@@ -428,7 +428,7 @@ Standardregel abschalten.
 
 - Keine 100-%-Garantie. Vor allem Personennamen im Fließtext, unübliche Passwörter ohne Schlüsselwort und
   firmenspezifische Bezeichnungen werden nur gefunden, wenn sie in einer eigenen Wortliste stehen oder ein
-  erkennbares Muster haben. Namenserkennung per KI (NER) ist erst für Version 2 geplant.
+  erkennbares Muster haben. Namenserkennung per KI (NER) ist für Version 2 geplant.
 - Dateinamen werden standardmäßig nicht bereinigt. Dafür „Dateinamen bereinigen“ bzw.
   `--sanitize-filenames` einschalten.
 - Der Modus Locker lässt bewusst unsichere Treffer stehen, z. B. Benutzernamen aus `DOMÄNE\name` oder
@@ -500,4 +500,4 @@ tests/                   Tests und fake_secrets/
 build_exe.bat            Build der .exe unter Windows
 ```
 
-Lizenz: noch nicht festgelegt.
+Lizenz: [MIT](LICENSE)

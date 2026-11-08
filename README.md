@@ -42,7 +42,7 @@ The .exe contains everything the program needs. Python does not have to be insta
    allow the file.
 4. Optional for the command line: put `secret_sanitizer_cli.exe` next to it (see [Command line](#6-command-line)).
 
-Uninstall: delete the .exe files. If you also want to remove the settings, additionally delete the folder
+Uninstall: delete the .exe files. To remove the settings as well, also delete the folder
 `%APPDATA%\secret_sanitizer` (enter `%APPDATA%\secret_sanitizer` in the Explorer address bar to get there).
 
 ## 2. Installation from source
@@ -70,8 +70,8 @@ Requirement: Python 3.10 or newer.
    ```
    Without arguments the GUI starts, with arguments the command line (`python -m secret_sanitizer --help`).
 
-Detection, rules and the command line work without extra packages. For command-line use only, you can
-therefore skip step 4. Without `pypdf`, PDFs are skipped; without `tkinterdnd2` there is no drag & drop. At
+Detection, rules and the command line work without extra packages. If you only need the command line, you can
+skip step 4. Without `pypdf`, PDFs are skipped; without `tkinterdnd2` there is no drag & drop. At
 runtime the program never downloads anything from the internet; the packages are inside the .exe.
 
 ## 3. Building the .exe yourself
@@ -121,7 +121,7 @@ the left and the sanitized version on the right, at the bottom the list of findi
 3. At the bottom is the list of findings: one entry per replaced value, with placeholder, category, shortened
    original value, count, detection method and confidence. Clicking an entry highlights the places in the
    text.
-4. "Don't replace" (or a double-click) excludes a value. This then applies to all occurrences of that value.
+4. "Don't replace" (or a double-click) excludes a value. That applies to every occurrence of the value.
    "Replace again" undoes it. Exceptions only last until you close the program and are not saved.
    "Always ignore" adds the selected value to the allowlist permanently after a confirmation
    (in plain text in `user_rules.json`, so only for values that are really not secret).
@@ -367,7 +367,7 @@ The settings are stored in the user folder, not in the program folder:
 | `process_pdf` | `true` | output text from PDFs as a sanitized `.pdf.txt` |
 | `pdf_timeout_s` / `pdf_max_memory_mb` | `60` / `1024` | time and memory limit when reading a PDF |
 
-It is best to create custom rules in the GUI (tab "Rules"). The format of `user_rules.json`:
+The easiest way to create custom rules is the "Rules" tab in the GUI. This is what `user_rules.json` looks like:
 
 ```json
 {
@@ -417,7 +417,7 @@ it. This way you can, for example, switch off a default rule with `"enabled": fa
 ## 10. Limits and known restrictions
 
 - No 100% guarantee. Personal names in running text, unusual passwords without a keyword and company-specific
-  terms in particular are only found if they're in a custom word list or follow a recognizable pattern. Name recognition with AI (NER) is only planned for version 2.
+  terms in particular are only found if they're in a custom word list or follow a recognizable pattern. Name recognition with AI (NER) is planned for version 2.
 - File names are not sanitized by default. For that, turn on "Sanitize file names" or
   `--sanitize-filenames`.
 - Loose mode deliberately leaves uncertain matches in place, e.g. usernames from `DOMAIN\name` or generic
@@ -486,4 +486,4 @@ tests/                   Tests and fake_secrets/
 build_exe.bat            Build of the .exe on Windows
 ```
 
-License: not decided yet.
+License: [MIT](LICENSE)
