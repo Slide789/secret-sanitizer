@@ -1,465 +1,489 @@
 # Secret Sanitizer (`secret_sanitizer`)
 
-Wer ein Log, eine Konfiguration, eine Befehlsausgabe oder ein Dokument weitergibt, etwa in ein Ticket, an den
-Support, in ein Forum, eine Doku oder einen KI-Chat, gibt dabei oft mehr preis als gedacht: Passwörter,
-Tokens, interne Hostnamen, IP-Adressen, Benutzernamen. Secret Sanitizer ist ein Windows-Tool, das solche
-Werte vorher findet und durch Platzhalter wie `[PASSWORD_1]`, `[IP_3]` oder `[EMAIL_2]` ersetzt.
+[Deutsch](README.de.md)
 
-Derselbe Wert bekommt dabei immer denselben Platzhalter. Taucht `srv01.corp.local` zehnmal im Log auf, steht
-dort zehnmal `[HOSTNAME_1]`. Wer den Text liest, kann also weiterhin nachvollziehen, was zusammengehört, ohne
-die echten Daten zu sehen. Eine Antwort mit diesen Platzhaltern lässt sich anschließend im Tool wieder in die
-echten Werte zurückübersetzen.
+When you paste a log, a config file, command output or a document into a ticket, a support request, a forum
+post, some documentation or an AI chat, you often give away more than you meant to: passwords, tokens,
+internal hostnames, IP addresses, usernames. Secret Sanitizer is a Windows tool that finds these values
+before you share the text and replaces them with placeholders like `[PASSWORD_1]`, `[IP_3]` or `[EMAIL_2]`.
+The GUI, the command line and the reports come in English and German (see [Language](#5-language)).
 
-Das Programm selbst läuft unter Windows, kommt aber mit Linux-Material (Logs, Configs, Shell-Ausgaben)
-genauso gut zurecht.
+The same value always gets the same placeholder. If `srv01.corp.local` shows up ten times in a log, the
+sanitized log says `[HOSTNAME_1]` ten times. Whoever reads it can still tell what belongs together without
+seeing the real data. When a reply comes back using those placeholders, the tool can turn it back into the
+real values.
 
-> Hinweis: Ergebnisse bitte immer selbst prüfen.
+The program itself runs on Windows, but it handles Linux material (logs, configs, shell output) just as well.
 
-## Inhalt
+> Note: Always check the results yourself.
 
-1. [Installation als .exe](#1-installation-als-exe)
-2. [Installation aus dem Quellcode](#2-installation-aus-dem-quellcode)
-3. [Die .exe selbst bauen](#3-die-exe-selbst-bauen)
-4. [Bedienung der Oberfläche](#4-bedienung-der-oberfläche)
-5. [Kommandozeile](#5-kommandozeile)
-6. [Was wird erkannt?](#6-was-wird-erkannt)
-7. [Konfiguration und eigene Regeln](#7-konfiguration-und-eigene-regeln)
-8. [Sicherheit](#8-sicherheit)
-9. [Grenzen und bekannte Einschränkungen](#9-grenzen-und-bekannte-einschränkungen)
-10. [Entwicklung und Tests](#10-entwicklung-und-tests)
+## Contents
 
-## 1. Installation als .exe
+1. [Installation as .exe](#1-installation-as-exe)
+2. [Installation from source](#2-installation-from-source)
+3. [Building the .exe yourself](#3-building-the-exe-yourself)
+4. [Using the GUI](#4-using-the-gui)
+5. [Language](#5-language)
+6. [Command line](#6-command-line)
+7. [What is detected?](#7-what-is-detected)
+8. [Configuration and custom rules](#8-configuration-and-custom-rules)
+9. [Security](#9-security)
+10. [Limits and known restrictions](#10-limits-and-known-restrictions)
+11. [Development and tests](#11-development-and-tests)
 
-Die .exe enthält alles, was das Programm braucht. Python muss nicht installiert sein.
+## 1. Installation as .exe
 
-1. Die Datei `secret_sanitizer.exe` in einen beliebigen Ordner kopieren, z. B. `C:\Tools\SecretSanitizer\`.
-2. Doppelklick auf `secret_sanitizer.exe` startet die Oberfläche.
-3. Beim ersten Start zeigt Windows eventuell die Meldung „Der Computer wurde durch Windows geschützt“
-   (SmartScreen), weil die Datei nicht digital signiert ist. Klicke auf „Weitere Informationen“ und dann
-   auf „Trotzdem ausführen“. In Firmenumgebungen muss die IT die Datei eventuell freigeben.
-4. Optional für die Kommandozeile: `secret_sanitizer_cli.exe` daneben legen (siehe [Kommandozeile](#5-kommandozeile)).
+The .exe contains everything the program needs. Python does not have to be installed.
 
-Deinstallieren: die .exe-Dateien löschen. Wenn du auch die Einstellungen entfernen willst, lösche zusätzlich den
-Ordner `%APPDATA%\secret_sanitizer` (dazu `%APPDATA%\secret_sanitizer` in die Adresszeile des Explorers eingeben).
+1. Copy the file `secret_sanitizer.exe` to any folder, e.g. `C:\Tools\SecretSanitizer\`.
+2. Double-click `secret_sanitizer.exe` to start the GUI.
+3. On the first start, Windows may show the message "Windows protected your PC" (SmartScreen) because the file
+   is not digitally signed. Click "More info" and then "Run anyway". In company environments, IT may have to
+   allow the file.
+4. Optional for the command line: put `secret_sanitizer_cli.exe` next to it (see [Command line](#6-command-line)).
 
-## 2. Installation aus dem Quellcode
+Uninstall: delete the .exe files. If you also want to remove the settings, additionally delete the folder
+`%APPDATA%\secret_sanitizer` (enter `%APPDATA%\secret_sanitizer` in the Explorer address bar to get there).
 
-Voraussetzung: Python 3.10 oder neuer.
+## 2. Installation from source
 
-1. Python von <https://www.python.org/downloads/windows/> installieren. Im Installer
-   „Add python.exe to PATH“ und „tcl/tk and IDLE“ anhaken (Letzteres ist Standard und wird für die
-   Oberfläche gebraucht).
-2. Eingabeaufforderung (`cmd`) oder PowerShell im Projektordner öffnen, d. h. in dem Ordner, in dem diese
-   README liegt.
-3. Eine virtuelle Umgebung anlegen und aktivieren:
+Requirement: Python 3.10 or newer.
+
+1. Install Python from <https://www.python.org/downloads/windows/>. In the installer, tick
+   "Add python.exe to PATH" and "tcl/tk and IDLE" (the latter is the default and is needed for the GUI).
+2. Open a command prompt (`cmd`) or PowerShell in the project folder, i.e. the folder that contains this
+   README.
+3. Create and activate a virtual environment:
    ```bat
    python -m venv .venv
    .venv\Scripts\activate
    ```
-   (Linux/macOS: `python3 -m venv .venv` und `source .venv/bin/activate`)
-4. Abhängigkeiten installieren: `customtkinter` für die Oberfläche, `tkinterdnd2` für Drag & Drop und `pypdf`
-   für PDFs. Alle sind fest angepinnt, und `pip` prüft jedes Paket gegen die SHA-256-Prüfsumme in der Datei:
+   (Linux/macOS: `python3 -m venv .venv` and `source .venv/bin/activate`)
+4. Install the dependencies: `customtkinter` for the GUI, `tkinterdnd2` for drag & drop and `pypdf` for PDFs.
+   All of them are pinned, and `pip` checks every package against the SHA-256 checksum in the file:
    ```bat
    pip install --require-hashes -r requirements.txt
    ```
-5. Starten:
+5. Start:
    ```bat
    python -m secret_sanitizer
    ```
-   Ohne Argumente startet die Oberfläche, mit Argumenten die Kommandozeile (`python -m secret_sanitizer --help`).
+   Without arguments the GUI starts, with arguments the command line (`python -m secret_sanitizer --help`).
 
-Erkennung, Regeln und Kommandozeile kommen ohne Zusatzpakete aus. Für reine Kommandozeilen-Nutzung kannst du
-Schritt 4 also überspringen. Ohne `pypdf` werden PDFs übersprungen, ohne `tkinterdnd2` gibt es kein Drag & Drop.
-Zur Laufzeit lädt das Programm nie etwas aus dem Internet nach; die Pakete stecken in der .exe.
+Detection, rules and the command line work without extra packages. For command-line use only, you can
+therefore skip step 4. Without `pypdf`, PDFs are skipped; without `tkinterdnd2` there is no drag & drop. At
+runtime the program never downloads anything from the internet; the packages are inside the .exe.
 
-## 3. Die .exe selbst bauen
+## 3. Building the .exe yourself
 
-Die .exe muss unter Windows gebaut werden. PyInstaller erzeugt immer Programme für das System, auf dem es
-läuft. Ein Build unter Linux ergibt keine .exe.
+The .exe has to be built on Windows. PyInstaller always produces programs for the system it runs on. A build
+on Linux does not give you an .exe.
 
-1. Python 3.10+ wie in Abschnitt 2 installieren (Python von python.org verwenden).
-2. Im Projektordner ausführen:
+1. Install Python 3.10+ as described in section 2 (use Python from python.org).
+2. Run this in the project folder:
    ```bat
    build_exe.bat
    ```
-   Das Skript legt eine eigene Build-Umgebung `.venv-build` an, installiert die Pakete aus
-   `requirements-build.txt` (nur mit geprüften Prüfsummen, `--require-hashes`), lässt alle Tests laufen und baut
-   danach:
-   - `dist\secret_sanitizer.exe`: Oberfläche (ohne Konsolenfenster)
-   - `dist\secret_sanitizer_cli.exe`: Kommandozeile
-3. Danach auf einem sauberen Windows-Rechner ohne Python testen: die .exe starten, Text einfügen, Ordner
-   bereinigen.
+   The script creates its own build environment `.venv-build`, installs the packages from
+   `requirements-build.txt` (only with verified checksums, `--require-hashes`), runs all tests and then builds:
+   - `dist\secret_sanitizer.exe`: GUI (no console window)
+   - `dist\secret_sanitizer_cli.exe`: command line
+3. Then test on a clean Windows machine without Python: start the .exe, paste text, sanitize a folder.
 
-Manueller Aufruf ohne Skript: `pyinstaller --noconfirm --clean packaging\secret_sanitizer.spec`
+Manual call without the script: `pyinstaller --noconfirm --clean packaging\secret_sanitizer.spec`
 
-Der exe-Name wird aus `APP_NAME` in `secret_sanitizer/config.py` gelesen. Der Programmname steht nur dort.
+The exe name is read from `APP_NAME` in `secret_sanitizer/config.py`. The program name is defined only there.
 
-## 4. Bedienung der Oberfläche
+## 4. Using the GUI
 
-Aufbau des Fensters: oben Modus und Kategorien, darunter der Prüf-Hinweis, in der Mitte links das Original
-und rechts die bereinigte Fassung, unten die Trefferliste und der Kopier-Button.
+Window layout: mode and categories at the top, below them the check reminder, in the middle the original on
+the left and the sanitized version on the right, at the bottom the list of findings and the copy button.
 
-### Oben: Modus und Kategorien
+### Top: mode and categories
 
-- Modus bestimmt, ab welcher Sicherheit ersetzt wird:
-  - Streng (Standard, empfohlen) ersetzt auch Treffer, bei denen sich das Tool nicht sicher ist. Ein
-    Platzhalter zu viel schadet weniger als ein übersehenes Passwort.
-  - Normal liegt dazwischen.
-  - Locker ersetzt nur eindeutige Treffer. Der Text bleibt besser lesbar, es rutscht aber eher etwas durch.
-- Kategorien: Jede Kategorie (Passwörter, IP-Adressen, Hostnamen …) lässt sich einzeln an- und abschalten.
-  Personenbezogene Daten (E-Mail-Adressen, Personennamen) haben einen eigenen Schalter.
-  Mit „Kategorien ▲“ lässt sich der Bereich einklappen.
-- Modus und Kategorien werden automatisch gespeichert.
+- Mode determines how certain a match must be before it is replaced:
+  - Strict (default, recommended) also replaces matches the tool is not sure about. One placeholder too many
+    does less harm than a missed password.
+  - Normal sits in between.
+  - Loose replaces only clear matches. The text stays more readable, but something is more likely to slip
+    through.
+- Categories: Every category (passwords, IP addresses, hostnames …) can be switched on and off individually.
+  Personal data (email addresses, personal names) has its own switch.
+  "Categories ▲" collapses the area.
+- Mode and categories are saved automatically.
 
-### Reiter „Text & Vorschau“
+### Tab "Text & preview"
 
-1. Text in das linke Feld „Original“ einfügen (Strg+V oder „Aus Zwischenablage einfügen“), über
-   „Datei öffnen“ eine Textdatei laden oder die Datei einfach ins Fenster ziehen (Drag & Drop).
-2. Rechts erscheint sofort die bereinigte Fassung. Die Treffer sind in beiden Feldern farbig nach
-   Kategorie markiert.
-3. Unten steht die Trefferliste: ein Eintrag pro ersetztem Wert, mit Platzhalter, Kategorie, gekürztem
-   Originalwert, Anzahl, erkennendem Verfahren und Konfidenz. Ein Klick auf einen Eintrag markiert die Stellen
-   im Text.
-4. „Doch nicht ersetzen“ (oder Doppelklick) nimmt einen Wert aus. Das gilt dann für alle Vorkommen
-   dieses Werts. Mit „Wieder ersetzen“ wird das rückgängig gemacht. Ausnahmen gelten nur bis zum Schließen und
-   werden nicht gespeichert.
-   „Immer ignorieren“ übernimmt den markierten Wert nach einer Rückfrage dauerhaft in die Allowlist
-   (im Klartext in `user_rules.json`, also nur für Werte, die wirklich kein Geheimnis sind).
-5. „Bereinigten Text kopieren“ legt das Ergebnis in die Zwischenablage.
-6. War eine Datei geladen, schreibt „Bereinigte Datei speichern“ das Ergebnis in den Ausgabeordner.
-   Das Original bleibt unverändert.
+1. Paste text into the left field "Original text" (Ctrl+V or "Paste from clipboard"), load a text file with
+   "Open file", or simply drag the file into the window (drag & drop).
+2. The sanitized version appears on the right immediately. Matches are highlighted in color by category in both
+   fields.
+3. At the bottom is the list of findings: one entry per replaced value, with placeholder, category, shortened
+   original value, count, detection method and confidence. Clicking an entry highlights the places in the
+   text.
+4. "Don't replace" (or a double-click) excludes a value. This then applies to all occurrences of that value.
+   "Replace again" undoes it. Exceptions only last until you close the program and are not saved.
+   "Always ignore" adds the selected value to the allowlist permanently after a confirmation
+   (in plain text in `user_rules.json`, so only for values that are really not secret).
+5. "Copy sanitized text" puts the result on the clipboard.
+6. If a file was loaded, "Save sanitized file" writes the result to the output folder. The original stays
+   unchanged.
 
-Ab 50 000 Zeichen läuft die Analyse im Hintergrund, das Fenster bleibt dabei bedienbar. Sehr große Texte
-(mehr als `max_preview_chars` Zeichen, Standard 200 000) zeigt das Tool ohne farbige Vorschau, weil das Textfeld
-sonst sehr langsam wird. Stattdessen gibt es eine Zusammenfassung mit Stichproben. Kopieren funktioniert
-trotzdem. Ein Archiv (`.zip`, `.gz` …), ein Office-Dokument oder eine PDF, das hier geöffnet oder hineingezogen
-wird, wird direkt als Dateilauf bereinigt.
+From 50,000 characters, the analysis runs in the background and the window stays usable. Very large texts
+(more than `max_preview_chars` characters, default 200,000) are shown without the colored preview because the
+text field would otherwise become very slow. Instead you get a summary with samples. Copying still works. An
+archive (`.zip`, `.gz` …), an Office document or a PDF that is opened or dragged in here is sanitized directly
+as a file run.
 
-Drag & Drop: Eine Textdatei landet in der Vorschau, ein Ordner im Reiter „Dateien & Ordner“. Zieht man eine
-Datei auf den Reiter „Dateien & Ordner“, wird sie dort als Eingabe übernommen. Bitte immer nur ein Element
-ablegen (mehrere Dateien am besten in einen Ordner legen).
+Drag & drop: a text file goes to the preview, a folder goes to the "Files & folders" tab. If you drop a file
+onto the "Files & folders" tab, it becomes the input there. Drop one item at a time; if you have several
+files, put them in a folder first.
 
-### Reiter „Dateien & Ordner“
+### Tab "Files & folders"
 
-1. „Datei öffnen“ oder „Ordner wählen“ (alle Dateien inklusive Unterordner).
-2. Ausgabeordner: leer lassen bedeutet automatisch `<eingabeordner>_sanitized` neben dem Eingabeordner.
-   Beispiel: `C:\Logs\Server1` wird zu `C:\Logs\Server1_sanitized`. Bei einer einzelnen Datei
-   `C:\Logs\app.log` landet das Ergebnis in `C:\Logs_sanitized\app.log`.
-3. „Bereinigen starten“. Die Unterordnerstruktur bleibt erhalten, die Originale werden nie verändert.
-4. Danach erscheint der Bericht: bearbeitete, übersprungene (z. B. Binärdateien) und fehlgeschlagene Dateien
-   mit Anzahl der Ersetzungen pro Kategorie, ohne Originalwerte. Der Bericht wird auch als
-   `secret_sanitizer_bericht.txt` in den Ausgabeordner geschrieben.
-5. Dateien über `max_file_size_mb` (Standard 100 MB) lösen eine Rückfrage aus.
-6. Ausschlussmuster: Ordner wie `.git`, `node_modules`, `__pycache__`, `.venv` und frühere
-   `*_sanitized`-Ausgaben werden übersprungen und im Bericht aufgeführt (änderbar im Reiter „Einstellungen“).
-7. „Ausgabeordner vorher leeren“ entfernt Ergebnisse früherer Läufe. Das passiert nur, wenn der Ordner leer
-   ist oder einen Bericht dieses Programms enthält; ein fremder Ordner wird nie geleert. Ohne das Häkchen warnt
-   der Bericht vor veralteten Dateien aus früheren Läufen (deren Platzhalter-Nummern passen nicht zum
-   aktuellen Lauf).
-8. „Dateinamen bereinigen“ ersetzt auch in Ordner- und Dateinamen, z. B.
-   `backup_srv01.corp.local.log` → `backup_[HOSTNAME_1].log`. Der Bericht zeigt dann nur die bereinigten Namen.
-9. Archive (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) werden entpackt, bereinigt und wieder eingepackt
-   (Häkchen „Archive bereinigen“, Standard an). Binäre oder verschlüsselte Einträge fehlen im neuen Archiv und
-   stehen im Bericht.
-10. Word, Excel, PowerPoint (`.docx`, `.xlsx`, `.pptx`) werden direkt bereinigt, Layout und Formatierung
-    bleiben erhalten. Bereinigt werden Texte, Tabellen, Kopf-/Fußzeilen, Fußnoten, Textfelder, Zellen, Formeln,
-    Folien, Notizen, Diagrammbeschriftungen, Kommentare, Alternativtexte, Link-Ziele und Metadaten. Außerdem:
-    - Nachverfolgte Änderungen werden angenommen (gelöschter Text steckt sonst weiter in der Datei),
-    - Autorennamen (Dokument, Kommentare, Änderungen) werden geleert,
-    - Bilder und eingebettete Objekte werden entfernt, weil ihr Inhalt nicht geprüft werden kann (z. B. ein
-      Screenshot mit Passwort). Abschaltbar im Reiter „Einstellungen“; der Bericht nennt die Anzahl.
-    - Dokumente mit Makros (`.docm`, `.xlsm`, `.pptm`) werden übersprungen.
-    - Excel: Ein bereinigter Blattname wird zu einem gültigen Namen wie `(HOSTNAME_1)`; Formeln, Druckbereiche
-      und Diagramme verweisen auf den neuen Namen.
-11. PDFs: Der Text wird gelesen und als bereinigte `<name>.pdf.txt` gespeichert (die PDF selbst wird
-    nicht ausgegeben). Gescannte PDFs ohne Text und PDFs mit Kennwort werden übersprungen.
-12. Mehrere CPU-Kerne: Ab 4 Dateien und 4 MB werden die Dateien parallel bearbeitet (Einstellung
-    „CPU-Kerne“, Standard automatisch). Das Ergebnis ist exakt dasselbe wie mit einem Kern; bei typischen Logs
-    ist es etwa 4-mal so schnell (8 Kerne). Der Bericht nennt die Anzahl der Kerne.
+1. "Open file" or "Choose folder" (all files including subfolders).
+2. Output folder: if you leave it empty, the tool uses `<input folder>_sanitized` next to the input folder.
+   Example: `C:\Logs\Server1` becomes `C:\Logs\Server1_sanitized`. For a single file `C:\Logs\app.log`, the
+   result ends up in `C:\Logs_sanitized\app.log`.
+3. "Start sanitizing". The subfolder structure is kept, the originals are never changed.
+4. Afterwards the report appears: processed, skipped (e.g. binary files) and failed files with the number of
+   replacements per category, without original values. The report is also written to the output folder as
+   `secret_sanitizer_report.txt` (`secret_sanitizer_bericht.txt` when the language is German).
+5. Files above `max_file_size_mb` (default 100 MB) trigger a confirmation prompt.
+6. Exclude patterns: Folders such as `.git`, `node_modules`, `__pycache__`, `.venv` and earlier
+   `*_sanitized` outputs are skipped and listed in the report (can be changed in the "Settings" tab).
+7. "Clear output folder first" removes results of earlier runs. It only does this if the folder is empty or
+   contains a report from this program (German or English), so it never clears a folder that isn't its own.
+   Without the checkbox, the report warns about stale files from earlier runs, because their placeholder
+   numbers don't match the current run.
+8. "Sanitize file names" also replaces in folder and file names, e.g.
+   `backup_srv01.corp.local.log` → `backup_[HOSTNAME_1].log`. The report then shows only the sanitized names.
+9. Archives (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) are extracted, sanitized and packed again
+   (checkbox "Sanitize archives (.zip, .gz, .tar)", on by default). Binary or encrypted entries are left out
+   of the new archive and listed in the report.
+10. Word, Excel and PowerPoint files (`.docx`, `.xlsx`, `.pptx`) are sanitized in place, keeping layout and
+    formatting. This covers text, tables, headers and footers, footnotes, text boxes, cells, formulas, slides,
+    notes, chart labels, comments, alt text, link targets and metadata. On top of that:
+    - Tracked changes are accepted, since deleted text would otherwise stay in the file.
+    - Author names (document, comments, changes) are cleared.
+    - Images and embedded objects are removed because the tool can't check what's in them (a screenshot with a
+      password, for example). You can turn this off in the "Settings" tab; the report gives the count.
+    - Documents with macros (`.docm`, `.xlsm`, `.pptm`) are skipped.
+    - Excel: A sanitized sheet name becomes a valid name like `(HOSTNAME_1)`; formulas, print areas and charts
+      point to the new name.
+11. PDFs: The text is read and saved as a sanitized `<name>.pdf.txt` (the PDF itself is not output). Scanned
+    PDFs without text and password-protected PDFs are skipped.
+12. Multiple CPU cores: From 4 files and 4 MB, the files are processed in parallel (setting "CPU cores for
+    folder runs", default automatic). The result is exactly the same as with one core; for typical logs it is
+    about 4 times as fast (8 cores). The report states the number of cores.
 
-Bei einem Ordnerlauf bekommt derselbe Wert in allen Dateien denselben Platzhalter, auch in Archiven,
-Office-Dokumenten und PDFs. Die Platzhalter-Nummern sind über den ganzen Lauf fortlaufend.
+In a folder run, the same value gets the same placeholder in all files, including archives, Office documents
+and PDFs. The placeholder numbers keep counting up across the whole run.
 
-### Reiter „Antwort zurückübersetzen“
+Text files can be UTF-8, UTF-16 (e.g. PowerShell output redirected with `>`), UTF-32, cp1252 or Latin-1. The
+tool detects the encoding itself and keeps Windows line endings (`\r\n`). Output is UTF-8 by default.
 
-Antworten auf bereinigten Text (vom Support, von Kollegen, von einer KI) enthalten oft dieselben
-Platzhalter, etwa „Starte den Dienst auf `[HOSTNAME_1]` neu“. Füge die
-Antwort links ein, rechts stehen dann wieder die echten Werte (farbig markiert). Oben wählst du, ob die Platzhalter aus dem Reiter
-„Text & Vorschau“ oder aus dem letzten Ordnerlauf stammen. Unbekannte Platzhalter werden gemeldet.
-Das funktioniert nur, solange das Programm geöffnet ist, denn die Zuordnung wird nie gespeichert.
+### Tab "Restore reply"
 
-Unterstützt werden Textdateien in UTF-8, UTF-16 (z. B. PowerShell-Ausgaben mit `>`), UTF-32, cp1252 und Latin-1.
-Die Kodierung wird automatisch erkannt. Windows-Zeilenenden (`\r\n`) bleiben erhalten. Die Ausgabe ist
-standardmäßig UTF-8.
+Replies to sanitized text (from support, colleagues, an AI) often use the same placeholders, for example
+"Restart the service on `[HOSTNAME_1]`". Paste the reply on the left and the real values show up on the
+right, highlighted in color. At the top you pick whether the placeholders come from the "Text & preview" tab
+or from the last folder run. The tool tells you about placeholders it doesn't know. This only works while the
+program is open, because the mapping is never saved.
 
-### Reiter „Regeln“
+### Tab "Rules"
 
-- Eigene Regeln: Name, Beschreibung, Muster (regulärer Ausdruck), Kategorie und Konfidenz eintragen und
-  „Regel übernehmen“ klicken. Im Testfeld darunter siehst du beim Tippen sofort, was das Muster findet.
-  Tipp: Mit `(?P<value>...)` wird nur ein Teil ersetzt, z. B. `kunde=(?P<value>\w+)` ersetzt nur den
-  Kundennamen. Muster mit verschachtelten Wiederholungen wie `(a+)+` können extrem langsam werden; der Editor
-  warnt davor und testet sie nicht live.
-- Eigene Wortlisten: Kategorie wählen (z. B. Firmennamen, Hostnamen, Benutzernamen, Projektnamen,
-  Personennamen) und einen Eintrag pro Zeile eintragen. Diese Wörter werden exakt ersetzt.
-- Allowlist: Einträge, die nie ersetzt werden, einer pro Zeile. Mit `re:` am Anfang ist der Eintrag ein
-  regulärer Ausdruck.
-- „Alle Regeln speichern“ aktiviert die Änderungen.
-- Profile (Leiste unten): Mehrere Regelsätze speichern und wechseln, z. B. „Kunde A“ und „Windows-Logs“.
-  - Speichern als … legt das aktuelle Profil im Konfigurationsordner ab (mit Wortlisten),
-    Laden übernimmt ein gespeichertes Profil.
-  - Exportieren … schreibt eine Profildatei zum Weitergeben, z. B. an Kollegen. Die Wortlisten enthalten
-    Firmen- und Personennamen im Klartext und werden darum nur auf Nachfrage mitexportiert.
-  - Importieren … liest eine Profildatei. Vorher zeigt das Tool, was sich ändert (neue/geänderte Regeln,
-    neue Wörter, Allowlist), und fragt: Zusammenführen oder Ersetzen. Ungültige Einträge und
-    möglicherweise langsame Muster werden gemeldet und nicht übernommen bzw. markiert.
-  - Profile enthalten nur Regeln, Wortlisten, Allowlist sowie Modus und Kategorien, keine Pfade oder
-    Befehle.
+- Custom rules: Enter name, description, pattern (regular expression), category and confidence and click
+  "Apply rule". In the test field below, you immediately see what the pattern finds as you type.
+  Tip: With `(?P<value>...)` only a part is replaced, e.g. `customer=(?P<value>\w+)` replaces only the
+  customer name. Patterns with nested repetitions like `(a+)+` can become extremely slow; the editor warns
+  about this and does not test them live.
+- Custom word lists: Choose a category (e.g. company names, hostnames, usernames, project names, personal
+  names) and enter one entry per line. These words are replaced exactly.
+- Allowlist: Entries that are never replaced, one per line. With `re:` at the start, the entry is a regular
+  expression.
+- "Save all rules" activates the changes.
+- Profiles (bar at the bottom): Save and switch between several rule sets, e.g. "Customer A" and "Windows
+  logs".
+  - "Save as …" stores the current profile in the configuration folder (with word lists),
+    "Load" applies a saved profile.
+  - "Export …" writes a profile file for passing on, e.g. to colleagues. The word lists contain company and
+    person names in plain text and are therefore only exported if you confirm.
+  - "Import …" reads a profile file. First the tool shows what would change (new or changed rules, new words,
+    allowlist) and asks whether to merge or replace. Invalid entries are reported and skipped; patterns that
+    might be slow are flagged.
+  - Profiles contain only rules, word lists, allowlist as well as mode and categories, no paths or commands.
 
-### Reiter „Einstellungen“
+### Tab "Settings"
 
-Hier lassen sich alle Werte aus `config.json` bearbeiten: Ausgabeordner, Ausgabekodierung, Limits,
-Blockgröße, Platzhalterstil, Ausschlussmuster, CPU-Kerne, PDF-Limits, Schwellen der Modi und Entropie-Schwellen.
-Häkchen schalten die Verarbeitung von Office-Dokumenten und PDFs sowie das Entfernen von Bildern aus
-Office-Dokumenten ein und aus.
+Here you can edit all values from `config.json`: language, output folder, output encoding, limits, block
+size, placeholder style, exclude patterns, CPU cores, PDF limits, mode thresholds and entropy thresholds.
+Checkboxes turn the processing of Office documents and PDFs on and off, as well as the removal of images from
+Office documents.
 
-## 5. Kommandozeile
+The language (Automatic, Deutsch or English) is at the very top under "General". A change only takes effect
+after the app restarts; the program asks whether it should restart right away. On restart, the mapping for
+restoring replies and unsaved input are lost.
 
-Aus dem Quellcode mit `python -m secret_sanitizer …`, mit der .exe als `secret_sanitizer_cli.exe …`.
+## 5. Language
+
+The GUI, the command line, messages and reports are available in English and German. The language is
+determined in this order, the first one given wins:
+
+1. Command-line option `--lang de` or `--lang en`
+2. Environment variable `SECRET_SANITIZER_LANG` (`de` or `en`)
+3. Setting `language` in `config.json` (`"auto"`, `"de"` or `"en"`), in the GUI under "Settings" → "General" →
+   "Language"
+4. Automatic: If the Windows language is German, the program runs in German, otherwise in English.
+
+Without any setting, `"auto"` applies. If the entry is missing in an older `config.json` or contains an
+invalid value, `"auto"` is used as well.
+
+The report in the output folder is called `secret_sanitizer_report.txt` in English and
+`secret_sanitizer_bericht.txt` in German. Both are recognized as a report of this program. If you switch the
+language and use the same output folder again, "Clear output folder first" or `--clean` still works, and the
+old report is replaced.
+
+Placeholders (`[PASSWORD_1]` …), category IDs, command-line option names and values, return codes, the folder
+name `_sanitized` and the extension `.pdf.txt` are the same in both languages. Custom rules, word lists and
+profile names are never translated. Only the Windows file dialog follows the Windows language.
+
+## 6. Command line
+
+From source with `python -m secret_sanitizer …`, with the .exe as `secret_sanitizer_cli.exe …`.
 
 ```bat
-REM Ordner bereinigen -> logs_sanitized\
+REM Sanitize a folder -> logs_sanitized\
 python -m secret_sanitizer C:\Logs\logs
 
-REM Datei in einen bestimmten Ausgabeordner
-python -m secret_sanitizer app.log -o C:\Temp\bereinigt
+REM File into a specific output folder
+python -m secret_sanitizer app.log -o C:\Temp\sanitized
 
-REM Über die Pipe (stdin -> stdout), z. B. Befehlsausgabe direkt bereinigen
-ipconfig /all | python -m secret_sanitizer - > ipconfig_bereinigt.txt
+REM Via pipe (stdin -> stdout), e.g. sanitize command output directly
+ipconfig /all | python -m secret_sanitizer - > ipconfig_sanitized.txt
 
-REM Modus, Kategorien
-python -m secret_sanitizer --mode normal --no-personal --disable HOSTNAME,IP datei.txt
+REM Mode, categories
+python -m secret_sanitizer --mode normal --no-personal --disable HOSTNAME,IP file.txt
 
-REM Nur prüfen (nichts schreiben), z. B. vor einem Commit
+REM Check only (write nothing), e.g. before a commit
 python -m secret_sanitizer --check src\ config\
 ```
 
-Wichtige Optionen (alle siehe `--help`):
+Important options (see `--help` for all):
 
-| Option | Bedeutung |
+| Option | Meaning |
 |---|---|
-| `-o ORDNER` | Ausgabeordner |
-| `-m strict\|normal\|loose` | Modus |
-| `--no-personal` | E-Mail-Adressen und Personennamen nicht ersetzen |
-| `--disable KAT,…` / `--enable KAT,…` | Kategorien ab-/anschalten (`--list-categories` zeigt alle) |
-| `--output-encoding utf-8\|same\|…` | Kodierung der Ausgabe (`same` = wie Eingabe) |
-| `-y` | große Dateien ohne Rückfrage verarbeiten |
-| `--check` | nur prüfen, nichts schreiben: listet Dateien mit Treffern (ohne Werte), Rückgabewert `3` bei Treffern |
-| `--exclude MUSTER` | zusätzlich überspringen, z. B. `--exclude "*.bak"` (mehrfach möglich) |
-| `--no-exclude` | auch die Standard-Ausschlussmuster (`.git`, `node_modules` …) nicht anwenden |
-| `--clean` | Ausgabeordner vorher leeren (nur wenn er von einem früheren Lauf stammt) |
-| `--sanitize-filenames` | auch Ordner- und Dateinamen bereinigen |
-| `--no-archives` | Archive nicht entpacken, sondern wie Binärdateien überspringen |
-| `--no-office` / `--keep-office-media` | Office-Dokumente nicht bereinigen / Bilder darin behalten |
-| `--no-pdf` | PDFs nicht lesen |
-| `--workers N` | CPU-Kerne für Ordnerläufe (Standard automatisch, `1` = nur ein Kern) |
-| `--profile NAME\|DATEI` | Regeln (und ggf. Modus/Kategorien) aus einem Profil statt der eigenen Regeln |
-| `--export-profile DATEI` | eigene Regeln als Profil exportieren (mit `--with-wordlists` inkl. Wortlisten) |
-| `--config DATEI`, `--rules DATEI` | andere config.json / user_rules.json |
-| `--no-user-rules` | nur mitgelieferte Regeln |
+| `-o FOLDER` | Output folder |
+| `-m strict\|normal\|loose` | Mode |
+| `--no-personal` | Do not replace email addresses and personal names |
+| `--disable CAT,…` / `--enable CAT,…` | Switch categories off/on (`--list-categories` shows all) |
+| `--output-encoding utf-8\|same\|…` | Output encoding (`same` = like input) |
+| `--lang de\|en` | Language of the output (see [Language](#5-language)) |
+| `-y` | Process large files without asking |
+| `--check` | Check only, write nothing: lists files with matches (without values), return code `3` on matches |
+| `--exclude PATTERN` | Additionally skip, e.g. `--exclude "*.bak"` (can be repeated) |
+| `--no-exclude` | Do not apply the default exclude patterns (`.git`, `node_modules` …) either |
+| `--clean` | Clear the output folder first (only if it comes from an earlier run) |
+| `--sanitize-filenames` | Also sanitize folder and file names |
+| `--no-archives` | Do not extract archives, skip them like binary files |
+| `--no-office` / `--keep-office-media` | Do not sanitize Office documents / keep images in them |
+| `--no-pdf` | Do not read PDFs |
+| `--workers N` | CPU cores for folder runs (default automatic, `1` = one core only) |
+| `--profile NAME\|FILE` | Rules (and mode/categories if present) from a profile instead of your own rules |
+| `--export-profile FILE` | Export your own rules as a profile (with `--with-wordlists` including word lists) |
+| `--config FILE`, `--rules FILE` | Different config.json / user_rules.json |
+| `--no-user-rules` | Only the bundled rules |
 
-Hinweis zur Pipe unter Windows: `cmd` gibt Text in der OEM-Codepage (meist cp850) aus. Umlaute können dadurch
-in der Ausgabe verfälscht erscheinen, die Erkennung selbst ist davon nicht betroffen. Für saubere Umlaute die
-Ausgabe erst in eine Datei schreiben (`ipconfig /all > ip.txt`) und dann die Datei bereinigen.
+Note on pipes under Windows: `cmd` outputs text in the OEM code page (usually cp850). Umlauts can therefore
+appear garbled in the output; the detection itself is not affected. For clean umlauts, first write the output
+to a file (`ipconfig /all > ip.txt`) and then sanitize the file.
 
-Rückgabewerte: `0` ok, `1` einzelne Dateien fehlgeschlagen, `2` Bedien- oder Eingabefehler, `3` Treffer
-gefunden (nur mit `--check`). Meldungen auf der Konsole enthalten nur Zähler und relative Pfade, keine
-Originalwerte.
+Return codes: `0` ok, `1` individual files failed, `2` usage or input error, `3` matches found (only with
+`--check`). Console messages contain only counters and relative paths, no original values.
 
-Beispiel für einen Git-Pre-commit-Hook (`.git/hooks/pre-commit`), der Commits mit Secrets stoppt:
+Example of a Git pre-commit hook (`.git/hooks/pre-commit`) that stops commits containing secrets:
 
 ```sh
 #!/bin/sh
 git diff --cached --name-only --diff-filter=ACM -z | xargs -0 -r secret_sanitizer_cli.exe --check || {
-  echo "Möglicherweise Secrets im Commit (siehe oben)."; exit 1; }
+  echo "Possible secrets in the commit (see above)."; exit 1; }
 ```
 
-## 6. Was wird erkannt?
+## 7. What is detected?
 
-Alle Verfahren laufen parallel. Überlappende Treffer werden zusammengeführt, der Treffer mit der höchsten
-Konfidenz gewinnt. Der Modus legt die Mindest-Konfidenz fest.
+All methods run in parallel. Overlapping matches are merged, the match with the highest confidence wins. The
+mode sets the minimum confidence.
 
-| Verfahren | Beispiele |
+| Method | Examples |
 |---|---|
-| Bekannte Formate (Regex) | AWS-Keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic-Keys, Hugging Face `hf_…`, PyPI `pypi-…`, Discord- und Telegram-Bot-Tokens, JWT, Azure `AccountKey=` und SAS-Signaturen `sig=…`, `user:pass@host` in URLs, E-Mail, IPv4/IPv6 (auch private, aber nicht `Version 1.2.3.4`), MAC, Hostnamen/FQDNs |
-| Telefonnummern | `+49 171 2345678`, `+49 (0)30 1234567`, `0171/2345678`, `030 12345678` (Kategorie `PHONE`, personenbezogen) |
-| PEM-Blöcke | `-----BEGIN … PRIVATE KEY-----` bis `-----END …-----` als Ganzes, auch abgeschnittene Blöcke; Zertifikate |
-| Kontext (key=value) | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, Connection-Strings, auch simple Passwörter wie `hunter2`, Passphrasen mit Leerzeichen (`password: correct horse battery`) und YAML-Blockwerte (`password: \|` mit eingerücktem Wert) |
-| Kommandozeile | `mysql -pGEHEIM`, `--password=…`, `curl -u user:pass`, `sshpass -p`, `net user name pw`, `/p:…`, PowerShell `-Password …`, `ConvertTo-SecureString "…"` |
-| Windows | SIDs `S-1-5-21-…`, `C:\Users\<Name>\…`, `DOMÄNE\benutzer`, UNC `\\server\share`, NTLM-Hashes (pwdump), `HKEY_USERS\<SID>` |
-| Linux | `/home/<name>/…`, `/etc/shadow`-Hashes, SSH-Schlüssel, `known_hosts`, Docker-`config.json`, Kubernetes-Secrets (Base64), Shell-Prompts `user@host` |
-| Passwort-Hashes | `$6$`, `$5$`, `$1$` (MD5-crypt), bcrypt `$2b$`, yescrypt `$y$`, NTLM |
-| Entropie | unbekannte zufällige Zeichenketten (z. B. Keys ohne bekanntes Format); Ausnahmen für Datei-Hashes, GUIDs, Pfade und Bezeichner |
-| Prüfsummen | Kreditkarten (Luhn) und IBAN (Modulo 97). Nur gültige Nummern werden ersetzt |
-| Eigene Wortlisten | Firmennamen, interne Hostnamen, Domains, Benutzer, Projekte, Personennamen |
-| Konsistenz | Ein erkannter Wert wird überall ersetzt, auch URL-codiert, JSON-/HTML-escaped und in anderer Groß-/Kleinschreibung |
+| Known formats (regex) | AWS keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic keys, Hugging Face `hf_…`, PyPI `pypi-…`, Discord and Telegram bot tokens, JWT, Azure `AccountKey=` and SAS signatures `sig=…`, `user:pass@host` in URLs, email, IPv4/IPv6 (also private, but not `Version 1.2.3.4`), MAC, hostnames/FQDNs |
+| Phone numbers | `+49 171 2345678`, `+49 (0)30 1234567`, `0171/2345678`, `030 12345678` (category `PHONE`, personal data) |
+| PEM blocks | `-----BEGIN … PRIVATE KEY-----` to `-----END …-----` as a whole, also truncated blocks; certificates |
+| Context (key=value) | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, connection strings, also simple passwords like `hunter2`, passphrases with spaces (`password: correct horse battery`) and YAML block values (`password: \|` with an indented value) |
+| Command line | `mysql -pSECRET`, `--password=…`, `curl -u user:pass`, `sshpass -p`, `net user name pw`, `/p:…`, PowerShell `-Password …`, `ConvertTo-SecureString "…"` |
+| Windows | SIDs `S-1-5-21-…`, `C:\Users\<name>\…`, `DOMAIN\user`, UNC `\\server\share`, NTLM hashes (pwdump), `HKEY_USERS\<SID>` |
+| Linux | `/home/<name>/…`, `/etc/shadow` hashes, SSH keys, `known_hosts`, Docker `config.json`, Kubernetes secrets (Base64), shell prompts `user@host` |
+| Password hashes | `$6$`, `$5$`, `$1$` (MD5-crypt), bcrypt `$2b$`, yescrypt `$y$`, NTLM |
+| Entropy | unknown random strings (e.g. keys without a known format); exceptions for file hashes, GUIDs, paths and identifiers |
+| Checksums | Credit cards (Luhn) and IBAN (modulo 97). Only valid numbers are replaced |
+| Custom word lists | Company names, internal hostnames, domains, users, projects, personal names |
+| Consistency | A detected value is replaced everywhere, also URL-encoded, JSON/HTML-escaped and in different upper/lower case |
 
-Standardmäßig nicht ersetzt (Allowlist): `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, Netzmasken,
-`example.com/.org/.net` sowie symbolische Werte wie `true`, `null`, ``, `${VAR}`.
+Not replaced by default (allowlist): `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, netmasks,
+`example.com/.org/.net` and symbolic values like `true`, `null`, ``, `${VAR}`.
 
-## 7. Konfiguration und eigene Regeln
+## 8. Configuration and custom rules
 
-Die Einstellungen liegen im Benutzerordner, nicht im Programmordner:
+The settings are stored in the user folder, not in the program folder:
 
-- Windows: `%APPDATA%\secret_sanitizer\config.json` und `user_rules.json`
+- Windows: `%APPDATA%\secret_sanitizer\config.json` and `user_rules.json`
 - Linux/macOS: `~/.config/secret_sanitizer/`
-- Abweichender Ordner (z. B. portabel auf einem USB-Stick): Umgebungsvariable `SECRET_SANITIZER_HOME`
+- Different folder (e.g. portable on a USB stick): environment variable `SECRET_SANITIZER_HOME`
 
-`config.json` (alle Werte haben Standards, fehlende oder ungültige Werte werden ignoriert):
+`config.json` (all values have defaults, missing or invalid values are ignored):
 
-| Schlüssel | Standard | Bedeutung |
+| Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"strict"` | `strict`, `normal` oder `loose` |
-| `enabled_categories` | alle an | z. B. `{"EMAIL": false}` |
-| `output_dir` | `""` | leer = `<eingabeordner>_sanitized` |
-| `output_encoding` | `"utf-8"` | oder z. B. `"utf-16"`, `"same"` |
-| `max_file_size_mb` | `100` | darüber Rückfrage |
-| `max_files_per_run` | `10000` | Obergrenze pro Lauf |
-| `max_preview_chars` | `200000` | darüber keine farbige Vorschau |
-| `chunk_size` / `chunk_overlap` | `1000000` / `65536` | Blockgröße und Überlappung für große Dateien (Zeichen) |
-| `entropy_thresholds` | je Modus | Entropie-Schwellen für `hex`, `base64`, `mixed` |
-| `entropy_min_length` | 16 / 20 / 24 | Mindestlänge je Modus |
-| `mode_thresholds` | 0.3 / 0.5 / 0.75 | Mindest-Konfidenz je Modus |
-| `placeholder_style` | `"[{CATEGORY}_{N}]"` | muss `{CATEGORY}` und `{N}` enthalten |
-| `exclude_patterns` | `.git`, `node_modules`, `*_sanitized` … | Ordner/Dateien im Ordnerlauf überspringen (fnmatch auf Name oder relativen Pfad) |
-| `sanitize_filenames` | `false` | auch Ordner- und Dateinamen bereinigen |
-| `process_archives` | `true` | `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz` entpacken, bereinigen, wieder einpacken |
-| `max_archive_mb` | `500` | Obergrenze für den entpackten Inhalt eines Archivs oder Office-Dokuments (Schutz vor Zip-Bomben) |
-| `workers` | `0` | CPU-Kerne für Ordnerläufe: `0` = automatisch (Kerne − 1, höchstens 8), `1` = nur ein Kern |
-| `process_office` | `true` | `.docx`, `.xlsx`, `.pptx` bereinigen |
-| `office_remove_media` | `true` | Bilder und eingebettete Objekte aus Office-Dokumenten entfernen |
-| `process_pdf` | `true` | Text aus PDFs als bereinigte `.pdf.txt` ausgeben |
-| `pdf_timeout_s` / `pdf_max_memory_mb` | `60` / `1024` | Zeit- und Speicherlimit beim Lesen einer PDF |
+| `mode` | `"strict"` | `strict`, `normal` or `loose` |
+| `language` | `"auto"` | `"auto"`, `"de"` or `"en"` (see [Language](#5-language)) |
+| `enabled_categories` | all on | e.g. `{"EMAIL": false}` |
+| `output_dir` | `""` | empty = `<input folder>_sanitized` |
+| `output_encoding` | `"utf-8"` | or e.g. `"utf-16"`, `"same"` |
+| `max_file_size_mb` | `100` | above this, a confirmation prompt |
+| `max_files_per_run` | `10000` | upper limit per run |
+| `max_preview_chars` | `200000` | above this, no colored preview |
+| `chunk_size` / `chunk_overlap` | `1000000` / `65536` | block size and overlap for large files (characters) |
+| `entropy_thresholds` | per mode | entropy thresholds for `hex`, `base64`, `mixed` |
+| `entropy_min_length` | 16 / 20 / 24 | minimum length per mode |
+| `mode_thresholds` | 0.3 / 0.5 / 0.75 | minimum confidence per mode |
+| `placeholder_style` | `"[{CATEGORY}_{N}]"` | must contain `{CATEGORY}` and `{N}` |
+| `exclude_patterns` | `.git`, `node_modules`, `*_sanitized` … | skip folders/files in a folder run (fnmatch on name or relative path) |
+| `sanitize_filenames` | `false` | also sanitize folder and file names |
+| `process_archives` | `true` | extract `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`, sanitize, repack |
+| `max_archive_mb` | `500` | upper limit for the extracted content of an archive or Office document (protection against zip bombs) |
+| `workers` | `0` | CPU cores for folder runs: `0` = automatic (cores − 1, at most 8), `1` = one core only |
+| `process_office` | `true` | sanitize `.docx`, `.xlsx`, `.pptx` |
+| `office_remove_media` | `true` | remove images and embedded objects from Office documents |
+| `process_pdf` | `true` | output text from PDFs as a sanitized `.pdf.txt` |
+| `pdf_timeout_s` / `pdf_max_memory_mb` | `60` / `1024` | time and memory limit when reading a PDF |
 
-Eigene Regeln am besten in der Oberfläche anlegen (Reiter „Regeln“). Das Format von `user_rules.json`:
+It is best to create custom rules in the GUI (tab "Rules"). The format of `user_rules.json`:
 
 ```json
 {
   "rules": [
-    {"id": "ticket", "name": "Ticketnummer", "description": "Interne Tickets",
+    {"id": "ticket", "name": "Ticket number", "description": "Internal tickets",
      "category": "CUSTOM", "pattern": "TICKET-\\d{4,}", "confidence": 0.9,
      "flags": ["IGNORECASE"], "enabled": true}
   ],
   "wordlists": [
-    {"id": "firma", "name": "Firma", "description": "Unsere Namen", "category": "COMPANY",
-     "words": ["Muster GmbH", "MusterCorp"], "ignore_case": true, "enabled": true}
+    {"id": "company", "name": "Company", "description": "Our names", "category": "COMPANY",
+     "words": ["Example Ltd", "ExampleCorp"], "ignore_case": true, "enabled": true}
   ],
   "allowlist": [
-    {"value": "10.0.0.1", "regex": false, "description": "Öffentlich bekanntes Gateway"}
+    {"value": "10.0.0.1", "regex": false, "description": "Publicly known gateway"}
   ]
 }
 ```
 
-Eine eigene Regel mit derselben `id` wie eine mitgelieferte Regel (siehe
-`secret_sanitizer/rules/default_rules.json`) ersetzt diese. So lässt sich z. B. mit `"enabled": false` eine
-Standardregel abschalten.
+A custom rule with the same `id` as a bundled rule (see `secret_sanitizer/rules/default_rules.json`) replaces
+it. This way you can, for example, switch off a default rule with `"enabled": false`.
 
-## 8. Sicherheit
+## 9. Security
 
-- Komplett offline: keine Netzwerkzugriffe, keine Telemetrie, keine Update-Checks, keine Online-Prüfung
-  gefundener Keys. Ein Test stellt sicher, dass kein Netzwerkmodul importiert wird.
-- Keine Originalwerte in Logs, Berichten oder Fehlermeldungen. Fehlermeldungen nennen nur die Fehlerart
-  (z. B. „keine Berechtigung“), nie den Ausnahmetext. Die Trefferliste in der Oberfläche zeigt Werte nur
-  gekürzt an.
-- Das Mapping (Wert → Platzhalter) liegt nur im Arbeitsspeicher und wird nie gespeichert. Die
-  Rückübersetzung von Antworten nutzt genau dieses Mapping und funktioniert deshalb nur, solange das
-  Programm geöffnet ist. Beim Schließen wird es verworfen.
-- Archive werden in einen Temp-Ordner entpackt, der nach dem Lauf immer gelöscht wird, auch bei Fehlern
-  oder Abbruch. Pfade wie `../` im Archiv werden abgelehnt, Größen- und Anzahl-Limits schützen vor Zip-Bomben.
-- Office-Dokumente werden auf Textebene bearbeitet, ohne XML-Parser: Es werden keine Entitäten
-  expandiert, Dateien mit `DOCTYPE` werden abgelehnt. Bliebe nach dem Entfernen eines Bildes ein Verweis
-  darauf übrig, wird lieber gar keine Ausgabe geschrieben als ein beschädigtes Dokument.
-- PDFs werden in einem eigenen Prozess gelesen, mit Zeitlimit und hartem Speicherlimit (Windows:
-  Job-Objekt). Eine präparierte PDF kann das Programm also weder aufhängen noch den Speicher füllen. Der
-  gelesene Text bleibt im Arbeitsspeicher und landet nie in einer Temp-Datei.
-- Mehrere CPU-Kerne: Werte wandern nur über interne Pipes zwischen den Prozessen, nie über die Festplatte.
-- Profile enthalten nur Daten (keine Pfade, keine Befehle) und werden beim Import streng geprüft.
-- Abhängigkeiten sind mit SHA-256-Prüfsummen angepinnt; ein manipuliertes Paket bricht die Installation ab.
-- Originaldateien werden nie verändert. Ausgaben landen in einem separaten Ordner. Der Ausgabeordner darf
-  nicht der Eingabeordner oder ein übergeordneter Ordner sein. Ausgabedateien werden erst vollständig
-  geschrieben und dann umbenannt, halbe Dateien bleiben nicht liegen.
-- Der Bericht enthält nur relative Pfade und Zähler (mit „Dateinamen bereinigen“ nur die bereinigten
-  Namen).
+- Completely offline: no network access, no telemetry, no update checks, no online verification of found
+  keys. A test makes sure that no network module is imported.
+- No original values in logs, reports or error messages. Error messages name only the kind of error
+  (e.g. "permission denied"), never the exception text. The list of findings in the GUI shows values only in
+  shortened form.
+- The mapping (value → placeholder) lives only in memory and is never saved. Translating replies back uses
+  exactly this mapping and therefore only works while the program is open. It is discarded on closing.
+- Archives are extracted into a temp folder that is always deleted after the run, also on errors or
+  cancellation. Paths like `../` in an archive are rejected, size and count limits protect against zip bombs.
+- Office documents are processed at text level, without an XML parser: no entities are expanded, files with
+  `DOCTYPE` are rejected. If removing an image would leave a dangling reference, the tool writes no output
+  instead of a broken document.
+- PDFs are read in a separate process, with a time limit and a hard memory limit (Windows: job object). A
+  crafted PDF can therefore neither hang the program nor fill the memory. The extracted text stays in memory
+  and never ends up in a temp file.
+- Multiple CPU cores: Values travel only through internal pipes between the processes, never via disk.
+- Profiles contain only data (no paths, no commands) and are strictly checked on import.
+- Dependencies are pinned with SHA-256 checksums; a tampered package aborts the installation.
+- Original files are never changed. Outputs go to a separate folder. The output folder must not be the input
+  folder or a parent folder. Output files are written completely first and then renamed, so half-written
+  files do not remain.
+- The report contains only relative paths and counters (with "Sanitize file names" only the sanitized names).
 
-## 9. Grenzen und bekannte Einschränkungen
+## 10. Limits and known restrictions
 
-- Keine 100-%-Garantie. Vor allem Personennamen im Fließtext, unübliche Passwörter ohne Schlüsselwort und
-  firmenspezifische Bezeichnungen werden nur gefunden, wenn sie in einer eigenen Wortliste stehen oder ein
-  erkennbares Muster haben. Namenserkennung per KI (NER) ist erst für Version 2 geplant.
-- Dateinamen werden standardmäßig nicht bereinigt. Dafür „Dateinamen bereinigen“ bzw.
-  `--sanitize-filenames` einschalten.
-- Der Modus Locker lässt bewusst unsichere Treffer stehen, z. B. Benutzernamen aus `DOMÄNE\name` oder
-  allgemeine Hostnamen.
-- Im Modus Streng werden auch öffentliche Domains wie `github.com` ersetzt. Bei Bedarf in die Allowlist
-  aufnehmen.
-- Wurde ein Wert einmal erkannt, ersetzt das Tool ihn sicherheitshalber in jeder Groß-/Kleinschreibung,
-  auch wenn die Wortliste „Groß/klein ignorieren“ ausgeschaltet hat. Die Option wirkt also nur auf die
-  Erkennung.
-- Dateien mit gemischten Zeilenenden werden einheitlich mit dem überwiegenden Zeilenende geschrieben.
-- Tempo: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool mit einem Kern etwa
-  0,2–0,5 MB pro Sekunde, weil jede Datei zweimal gelesen wird (erst lernen, dann ersetzen); mit mehreren Kernen
-  entsprechend mehr. Office-Dokumente und PDFs werden immer im Hauptprozess bearbeitet. Der Fortschritt wird
-  angezeigt, abbrechen ist möglich.
-- Archive in Archiven, alte Office-Formate (`.doc`, `.xls`, `.ppt`), OpenDocument (`.odt` …) und Bilder werden
-  nicht verarbeitet. Binärdateien werden übersprungen und im Bericht aufgeführt.
-- Office: Bilder werden entfernt, nicht geprüft (keine Texterkennung). Eine Formel, die sich auf einen
-  bereinigten Wert verlässt (z. B. ein Passwort als Vergleichswert), rechnet danach mit dem Platzhalter. Ein
-  Hinweis wie „Passwort“ in einer Tabellenzelle und der Wert in der Nachbarzelle werden nicht als Paar erkannt
-  (nur innerhalb einer Zelle/Zeile, z. B. „Passwort: …“).
-- PDF: Keine Texterkennung (OCR) für gescannte PDFs. Die Reihenfolge des Textes folgt der PDF und kann bei
-  mehrspaltigem Layout ungewohnt sein.
-- Telefonnummern werden nur mit Vorwahl und Trennzeichen erkannt (`030 12345678`), nicht als reine Ziffernfolge.
-- Drag & Drop nimmt immer nur ein Element auf einmal an.
-- Eigene reguläre Ausdrücke können bei ungeschickter Formulierung sehr langsam sein (z. B. `(a+)+`). Die
-  Warnung des Editors ist eine Heuristik und findet die typischen, nicht alle Fälle.
-- Die Oberfläche braucht Tk 8.6, wie es die Python-Installer von python.org und die .exe mitbringen. Mit
-  Python-Builds, die Tk 9 enthalten, startet customtkinter derzeit nicht (Fehler
-  `expected integer but got ""`).
+- No 100% guarantee. Personal names in running text, unusual passwords without a keyword and company-specific
+  terms in particular are only found if they're in a custom word list or follow a recognizable pattern. Name recognition with AI (NER) is only planned for version 2.
+- File names are not sanitized by default. For that, turn on "Sanitize file names" or
+  `--sanitize-filenames`.
+- Loose mode deliberately leaves uncertain matches in place, e.g. usernames from `DOMAIN\name` or generic
+  hostnames.
+- In Strict mode, public domains like `github.com` are replaced as well. Add them to the allowlist if needed.
+- Once a value has been detected, the tool replaces it in every upper/lower case to be safe, even if the word
+  list has "Ignore case" switched off. So the option only affects detection.
+- Files with mixed line endings are written uniformly with the predominant line ending.
+- Speed: For very dense logs (several matches per line), the tool manages about 0.2–0.5 MB per second with one
+  core, because every file is read twice (learn first, then replace). More cores make it faster. Office
+  documents and PDFs always run in the main process. You see the progress and can cancel at any time.
+- Archives within archives, old Office formats (`.doc`, `.xls`, `.ppt`), OpenDocument (`.odt` …) and images are
+  not processed. Binary files are skipped and listed in the report.
+- Office: Images are removed, not checked (no text recognition). A formula that relies on a sanitized value
+  (e.g. a password as a comparison value) calculates with the placeholder afterwards. A hint like "password"
+  in one table cell and the value in the neighboring cell are not recognized as a pair (only within one
+  cell/row, e.g. "Password: …").
+- PDF: No text recognition (OCR) for scanned PDFs. The order of the text follows the PDF and can look
+  unusual with multi-column layouts.
+- Phone numbers are only detected with an area code and separators (`030 12345678`), not as a plain digit
+  sequence.
+- Drag & drop accepts only one item at a time.
+- Custom regular expressions can be very slow if phrased carelessly (e.g. `(a+)+`). The editor warning is a
+  heuristic and finds the typical cases, not all of them.
+- The GUI needs Tk 8.6, as shipped by the python.org installers and the .exe. With Python builds that contain
+  Tk 9, customtkinter currently does not start (error `expected integer but got ""`).
 
-## 10. Entwicklung und Tests
+## 11. Development and tests
 
 ```bat
 python -m unittest discover -s tests -t .
 ```
 
-- Die Tests verwenden ausschließlich erfundene Daten aus `tests/fake_secrets/`. Erzeugt werden sie mit
-  `python tests/fake_data.py`, darunter UTF-16-, cp1252-, CRLF- und Binärdateien.
-- Geprüft werden Treffer, Fehlalarme (Hashes, GUIDs, Pfade, Zahlen, Ports), dass Berichte und Fehlermeldungen
-  keine Originalwerte enthalten, dass derselbe Wert in mehreren Schreibweisen überall ersetzt wird, die
-  blockweise Verarbeitung großer Dateien und die Kommandozeile.
-- Office- und PDF-Tests bauen ihre Testdokumente selbst (minimales OOXML bzw. PDF). Dass bereinigte Dateien in
-  Word, Excel und PowerPoint ohne Reparatur öffnen, wurde zusätzlich mit echten, von Office erzeugten Dateien
-  geprüft. Die PDF-Tests brauchen `pypdf`.
-- Mehrkern-Tests vergleichen das Ergebnis byte-genau mit einem Lauf mit einem Kern.
-- GUI-Smoke-Test (braucht ein Display und customtkinter, für Drag & Drop tkinterdnd2):
+- The tests use only invented data from `tests/fake_secrets/`. They are generated with
+  `python tests/fake_data.py`, including UTF-16, cp1252, CRLF and binary files.
+- The tests check matches, false alarms (hashes, GUIDs, paths, numbers, ports), that reports and error
+  messages contain no original values, that the same value in several spellings is replaced everywhere,
+  block-wise processing of large files and the command line.
+- Language tests check that `de.json` and `en.json` contain the same keys and placeholders and that the report,
+  messages and command line work in both languages.
+- Office and PDF tests build their own minimal OOXML and PDF documents. Sanitized files were also checked
+  against real files created by Office: they open in Word, Excel and PowerPoint without needing repair. The
+  PDF tests need `pypdf`.
+- Multi-core tests compare the result byte for byte with a run using one core.
+- GUI smoke test (needs a display and customtkinter, for drag & drop tkinterdnd2):
   `python tests/gui_smoke.py`
-- Auf GitHub laufen die Tests bei jedem Push automatisch unter Windows und Linux mit Python 3.10 und 3.13
+- On GitHub, the tests run automatically on every push on Windows and Linux with Python 3.10 and 3.13
   (`.github/workflows/tests.yml`).
 
-Projektstruktur:
+Project structure:
 
 ```
 secret_sanitizer/
-├── __main__.py          Einstieg: GUI oder CLI
-├── cli.py               Kommandozeile
-├── config.py            APP_NAME, Einstellungen laden/speichern
+├── __main__.py          Entry point: GUI or CLI
+├── cli.py               Command line
+├── config.py            APP_NAME, load/save settings
+├── i18n.py              Language selection and texts (t())
+├── locales/             de.json, en.json (all texts of the GUI, command line and reports)
 ├── core/                pipeline, models, rules, merger, replacer, encoding, files, archives,
-│                        office, pdf, parallel (mehrere Kerne), profiles
-├── detectors/           regex, context (+ Kommandozeile), wordlist, entropy, validators
-├── rules/               default_rules.json, user_rules.json (Vorlage)
+│                        office, pdf, parallel (multiple cores), profiles
+├── detectors/           regex, context (+ command line), wordlist, entropy, validators
+├── rules/               default_rules.json, user_rules.json (template)
 └── gui/                 app, widgets, rule_editor
-packaging/               PyInstaller-Spec und Startskripte
-tests/                   Tests und fake_secrets/
-build_exe.bat            Build der .exe unter Windows
+packaging/               PyInstaller spec and start scripts
+tests/                   Tests and fake_secrets/
+build_exe.bat            Build of the .exe on Windows
 ```
 
-Lizenz: noch offen (siehe Projektplan, offene Punkte).
+License: not decided yet.

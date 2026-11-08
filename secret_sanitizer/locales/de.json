@@ -478,6 +478,7 @@
   "gui.settings.language_de": "Deutsch",
   "gui.settings.language_en": "English",
   "gui.settings.language_hint": "Eine Änderung gilt nach einem Neustart der App.",
+  "gui.settings.language_override": "Derzeit durch --lang oder SECRET_SANITIZER_LANG festgelegt.",
   "gui.settings.f.output_dir": "Ausgabeordner (leer = <eingabeordner>_sanitized)",
   "gui.settings.f.output_encoding": "Ausgabekodierung (utf-8, utf-16, cp1252 … oder 'same' = wie Eingabe)",
   "gui.settings.f.max_file_size_mb": "Max. Dateigröße in MB (darüber Rückfrage)",

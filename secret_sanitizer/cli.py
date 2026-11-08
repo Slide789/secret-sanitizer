@@ -230,7 +230,7 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
             continue
         output = args.output
         if output and len(inputs) > 1:
-            output = str(Path(output) / (path.resolve().name or "eingabe"))
+            output = str(Path(output) / (path.resolve().name or "input"))
         try:
             report, out_root = FileRun(sanitizer, confirm_large=confirm_large, progress=progress).run(
                 path, output_dir=output, write_report=not args.no_report, clean_output=args.clean,

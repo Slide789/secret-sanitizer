@@ -23,7 +23,7 @@ from .i18n import t
 
 APP_NAME = "secret_sanitizer"
 APP_TITLE = "Secret Sanitizer"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # Umgebungsvariable, mit der sich der Konfigurationsordner umlenken lässt
 # (z. B. für Tests oder eine portable Installation).

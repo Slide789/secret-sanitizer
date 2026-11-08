@@ -42,7 +42,7 @@ from ..core.pdf import is_pdf
 from ..core.pipeline import Sanitizer
 from ..core.replacer import value_key
 from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_user_rules, slow_pattern_warnings
-from ..i18n import LANG_ENV_VAR, current_language, resolve_language, set_language, t
+from ..i18n import LANG_ENV_VAR, current_language, detect_system_language, resolve_language, set_language, t
 from . import dialogs
 from .rule_editor import RuleEditor
 from .widgets import CategoryPanel, FindingTable, HighlightTextbox
@@ -240,11 +240,14 @@ class App(ctk.CTk, *_DND_BASES):
         self._persist_settings()
         self.schedule_preview(immediate=True)
 
-    def _persist_settings(self) -> None:
+    def _persist_settings(self) -> bool:
+        """Speichert die Einstellungen; False, wenn das Speichern fehlschlug (Toast ist gezeigt)."""
         try:
             save_settings(self.settings)
         except OSError as exc:
             self._toast(t("gui.toast.settings_not_saved", name=type(exc).__name__), error=True)
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Tab: Text & Vorschau
@@ -915,6 +918,10 @@ class App(ctk.CTk, *_DND_BASES):
         ctk.CTkOptionMenu(lang_frame, variable=self.language_var, values=list(self._language_labels.values()),
                           width=160).pack(side="left")
         ctk.CTkLabel(lang_frame, text=t("gui.settings.language_hint"), text_color="gray").pack(side="left", padx=10)
+        # Gilt eine andere Sprache als die aus den Einstellungen (--lang / Umgebungsvariable), kurz darauf hinweisen
+        configured = self.settings.language if self.settings.language in ("de", "en") else detect_system_language()
+        if current_language() != configured:
+            ctk.CTkLabel(lang_frame, text=t("gui.settings.language_override"), text_color="gray").pack(side="left")
         row += 1
         for key, label in fields:
             var = tk.StringVar(value=_form_value(getattr(self.settings, key)))
@@ -1013,7 +1020,7 @@ class App(ctk.CTk, *_DND_BASES):
         changed = [k for k in ("output_encoding", "placeholder_style") if getattr(new, k) != data[k]]
         language_changed = new.language != self.settings.language
         self.settings = new
-        self._persist_settings()
+        saved = self._persist_settings()
         self.output_var.set(new.output_dir)
         self._sync_settings_form()
         if changed:
@@ -1021,7 +1028,7 @@ class App(ctk.CTk, *_DND_BASES):
                                  parent=self)
         self._toast(t("gui.settings.saved"))
         self.schedule_preview(immediate=True)
-        if language_changed and dialogs.ask_yes_no(t("gui.restart.title"), t("gui.restart.message"), parent=self):
+        if saved and language_changed and dialogs.ask_yes_no(t("gui.restart.title"), t("gui.restart.message"), parent=self):
             try:
                 restart_app(self)
             except OSError as exc:
