@@ -8,7 +8,7 @@ from tkinter import ttk
 
 import customtkinter as ctk
 
-from ..core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES
+from ..core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES, group_label
 
 MONO_FONT = ("Consolas", 12)
 ROWS_PER_GROUP = 5
@@ -87,7 +87,8 @@ class CategoryPanel(ctk.CTkFrame):
         self.vars: dict[str, tk.BooleanVar] = {}
         self.personal_var = tk.BooleanVar(value=all(enabled.get(c, True) for c in PERSONAL_CATEGORIES))
         col = 0
-        for group, label in GROUPS.items():
+        for group in GROUPS:
+            label = group_label(group)
             frame = ctk.CTkFrame(self, fg_color="transparent")
             frame.grid(row=0, column=col, sticky="nw", padx=6, pady=2)
             col += 1

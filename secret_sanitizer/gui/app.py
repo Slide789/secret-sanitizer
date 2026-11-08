@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover - abhängig von der Installation
     _DND_BASES = ()
 
 from .. import config
-from ..config import APP_TITLE, APP_VERSION, MODE_LABELS, MODES, Settings, load_settings, save_settings
+from ..config import APP_TITLE, APP_VERSION, MODES, Settings, load_settings, mode_label, save_settings
 from ..core.models import PERSONAL_CATEGORIES
 from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
                           save_sanitized_text)
@@ -130,8 +130,8 @@ class App(ctk.CTk, *_DND_BASES):
         left = ctk.CTkFrame(top, fg_color="transparent")
         left.pack(side="left", anchor="n", padx=8, pady=6)
         ctk.CTkLabel(left, text="Modus", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w")
-        self.mode_var = tk.StringVar(value=MODE_LABELS[self.settings.mode])
-        ctk.CTkSegmentedButton(left, values=[MODE_LABELS[m] for m in MODES], variable=self.mode_var,
+        self.mode_var = tk.StringVar(value=mode_label(self.settings.mode))
+        ctk.CTkSegmentedButton(left, values=[mode_label(m) for m in MODES], variable=self.mode_var,
                                command=self._mode_changed).pack(anchor="w", pady=4)
         self.mode_hint = ctk.CTkLabel(left, text="", text_color="gray", wraplength=230, justify="left")
         self.mode_hint.pack(anchor="w")
@@ -166,7 +166,7 @@ class App(ctk.CTk, *_DND_BASES):
         self.mode_hint.configure(text=texts[self.settings.mode])
 
     def _mode_changed(self, label: str) -> None:
-        mode = next(m for m, lab in MODE_LABELS.items() if lab == label)
+        mode = next(m for m in MODES if mode_label(m) == label)
         self.settings.mode = mode
         self._update_mode_hint()
         self._persist_settings()
@@ -181,7 +181,7 @@ class App(ctk.CTk, *_DND_BASES):
         """Modus und Kategorien aus einem Profil übernehmen."""
         if values.get("mode") in MODES:
             self.settings.mode = values["mode"]
-            self.mode_var.set(MODE_LABELS[self.settings.mode])
+            self.mode_var.set(mode_label(self.settings.mode))
             self._update_mode_hint()
         if isinstance(values.get("enabled_categories"), dict):
             self.settings.enabled_categories = {**self.settings.enabled_categories, **values["enabled_categories"]}
@@ -909,7 +909,7 @@ class App(ctk.CTk, *_DND_BASES):
         for mode in MODES:
             var = tk.StringVar(value=str(self.settings.mode_thresholds.get(mode)))
             self.setting_vars[f"mode_thresholds.{mode}"] = var
-            ctk.CTkLabel(scroll, text=MODE_LABELS[mode], anchor="w").grid(row=row, column=0, sticky="w", pady=3)
+            ctk.CTkLabel(scroll, text=mode_label(mode), anchor="w").grid(row=row, column=0, sticky="w", pady=3)
             ctk.CTkEntry(scroll, textvariable=var, width=120).grid(row=row, column=1, sticky="w", pady=3)
             row += 1
 
@@ -918,7 +918,7 @@ class App(ctk.CTk, *_DND_BASES):
         row += 1
         for mode in MODES:
             frame = ctk.CTkFrame(scroll, fg_color="transparent")
-            ctk.CTkLabel(scroll, text=MODE_LABELS[mode], anchor="w").grid(row=row, column=0, sticky="w", pady=3)
+            ctk.CTkLabel(scroll, text=mode_label(mode), anchor="w").grid(row=row, column=0, sticky="w", pady=3)
             frame.grid(row=row, column=1, sticky="w")
             for charset in ("hex", "base64", "mixed"):
                 var = tk.StringVar(value=str(self.settings.entropy_thresholds.get(mode, {}).get(charset, "")))

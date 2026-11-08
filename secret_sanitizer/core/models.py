@@ -10,52 +10,57 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ..i18n import t
+
 
 @dataclass(frozen=True)
 class Category:
     id: str
-    label: str
     group: str
     color: str
-    description: str
+
+    @property
+    def label(self) -> str:
+        return t(f"category.{self.id}.label")
+
+    @property
+    def description(self) -> str:
+        return t(f"category.{self.id}.description")
 
 
 # Gruppen für die Anzeige in GUI und CLI. "personal" = personenbezogene Daten.
-GROUPS = {
-    "secrets": "Zugangsdaten & Schlüssel",
-    "network": "Netzwerk & Systeme",
-    "identity": "Konten & Pfade",
-    "personal": "Personenbezogene Daten",
-    "finance": "Finanzdaten",
-    "custom": "Eigene Listen",
-}
+GROUPS = ("secrets", "network", "identity", "personal", "finance", "custom")
+
+
+def group_label(group: str) -> str:
+    return t(f"group.{group}")
+
 
 _CATEGORY_LIST = [
-    Category("PASSWORD", "Passwörter", "secrets", "#e74c3c", "Passwörter und Kennwörter"),
-    Category("SECRET", "Geheimnisse", "secrets", "#c0392b", "Unbekannte Secrets (z. B. per Entropie erkannt)"),
-    Category("TOKEN", "Tokens", "secrets", "#d35400", "Zugriffstokens, Bearer-Tokens, Session-Cookies"),
-    Category("API_KEY", "API-Keys", "secrets", "#e67e22", "API- und Cloud-Schlüssel"),
-    Category("JWT", "JWT", "secrets", "#f39c12", "JSON Web Tokens"),
-    Category("PRIVATE_KEY", "Private Schlüssel", "secrets", "#8e44ad", "PEM-Blöcke mit privaten Schlüsseln"),
-    Category("CERTIFICATE", "Zertifikate", "secrets", "#9b59b6", "PEM-Zertifikate und andere PEM-Blöcke"),
-    Category("PASSWORD_HASH", "Passwort-Hashes", "secrets", "#a04000", "NTLM, bcrypt, $6$, MD5-crypt usw."),
-    Category("SSH_KEY", "SSH-Schlüssel", "secrets", "#6c3483", "Öffentliche SSH-Schlüssel (identifizierend)"),
-    Category("IP", "IP-Adressen", "network", "#2980b9", "IPv4 und IPv6, auch private Adressen"),
-    Category("MAC", "MAC-Adressen", "network", "#3498db", "Hardware-Adressen"),
-    Category("HOSTNAME", "Hostnamen", "network", "#16a085", "Rechner- und Servernamen, FQDNs"),
-    Category("DOMAIN", "Domains", "network", "#1abc9c", "Domains (v. a. aus eigenen Listen)"),
-    Category("UNC_PATH", "UNC-Pfade", "network", "#117a65", "Windows-Freigaben \\\\server\\share"),
-    Category("USERNAME", "Benutzernamen", "identity", "#27ae60", "Benutzernamen, z. B. aus C:\\Users\\... oder /home/..."),
-    Category("SID", "Windows-SIDs", "identity", "#229954", "Sicherheits-IDs S-1-5-21-..."),
-    Category("EMAIL", "E-Mail-Adressen", "personal", "#2e86c1", "E-Mail-Adressen (personenbezogen)"),
-    Category("NAME", "Personennamen", "personal", "#5dade2", "Namen aus eigenen Listen (personenbezogen)"),
-    Category("PHONE", "Telefonnummern", "personal", "#85c1e9", "Telefonnummern mit Vorwahl (personenbezogen)"),
-    Category("PHONE", "Telefonnummern", "personal", "#85c1e9", "Telefonnummern mit Vorwahl (personenbezogen)"),
-    Category("CREDIT_CARD", "Kreditkarten", "finance", "#b7950b", "Kartennummern mit gültiger Luhn-Prüfsumme"),
-    Category("IBAN", "IBAN", "finance", "#d4ac0d", "IBANs mit gültiger Prüfsumme"),
-    Category("COMPANY", "Firmennamen", "custom", "#7f8c8d", "Firmennamen aus eigenen Listen"),
-    Category("PROJECT", "Projektnamen", "custom", "#95a5a6", "Projektnamen aus eigenen Listen"),
-    Category("CUSTOM", "Sonstiges", "custom", "#566573", "Eigene Regeln ohne passende Kategorie"),
+    Category("PASSWORD", "secrets", "#e74c3c"),
+    Category("SECRET", "secrets", "#c0392b"),
+    Category("TOKEN", "secrets", "#d35400"),
+    Category("API_KEY", "secrets", "#e67e22"),
+    Category("JWT", "secrets", "#f39c12"),
+    Category("PRIVATE_KEY", "secrets", "#8e44ad"),
+    Category("CERTIFICATE", "secrets", "#9b59b6"),
+    Category("PASSWORD_HASH", "secrets", "#a04000"),
+    Category("SSH_KEY", "secrets", "#6c3483"),
+    Category("IP", "network", "#2980b9"),
+    Category("MAC", "network", "#3498db"),
+    Category("HOSTNAME", "network", "#16a085"),
+    Category("DOMAIN", "network", "#1abc9c"),
+    Category("UNC_PATH", "network", "#117a65"),
+    Category("USERNAME", "identity", "#27ae60"),
+    Category("SID", "identity", "#229954"),
+    Category("EMAIL", "personal", "#2e86c1"),
+    Category("NAME", "personal", "#5dade2"),
+    Category("PHONE", "personal", "#85c1e9"),
+    Category("CREDIT_CARD", "finance", "#b7950b"),
+    Category("IBAN", "finance", "#d4ac0d"),
+    Category("COMPANY", "custom", "#7f8c8d"),
+    Category("PROJECT", "custom", "#95a5a6"),
+    Category("CUSTOM", "custom", "#566573"),
 ]
 
 CATEGORIES: dict[str, Category] = {c.id: c for c in _CATEGORY_LIST}

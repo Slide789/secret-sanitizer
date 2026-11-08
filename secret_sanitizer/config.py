@@ -19,6 +19,8 @@ import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+from .i18n import t
+
 APP_NAME = "secret_sanitizer"
 APP_TITLE = "Secret Sanitizer"
 APP_VERSION = "1.2.0"
@@ -28,7 +30,12 @@ APP_VERSION = "1.2.0"
 HOME_ENV_VAR = APP_NAME.upper() + "_HOME"
 
 MODES = ("strict", "normal", "loose")
-MODE_LABELS = {"strict": "Streng", "normal": "Normal", "loose": "Locker"}
+
+
+def mode_label(mode: str) -> str:
+    """Anzeigename eines Modus in der aktuellen Sprache."""
+    return t(f"mode.{mode}")
+
 
 DEFAULT_MODE_THRESHOLDS = {"strict": 0.3, "normal": 0.5, "loose": 0.75}
 

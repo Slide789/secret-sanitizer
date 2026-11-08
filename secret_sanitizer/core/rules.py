@@ -26,6 +26,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..i18n import has_key, t
 from .models import CATEGORIES
 
 ALLOWED_FLAGS = {"IGNORECASE": re.IGNORECASE, "MULTILINE": re.MULTILINE, "DOTALL": re.DOTALL}
@@ -399,6 +400,13 @@ def load_ruleset(default_path: Path, user_path: Path | None = None) -> RuleSet:
         context_key_excludes=list(data.get("context_key_excludes", [])),
         errors=errors,
     )
+    # Anzeigetexte der mitgelieferten Regeln aus dem Sprachkatalog (vor dem Zusammenführen,
+    # eigene Regeln bleiben unangetastet)
+    for rule in ruleset.rules:
+        if has_key(f"rule.{rule.id}.name"):
+            rule.name = t(f"rule.{rule.id}.name")
+        if has_key(f"rule.{rule.id}.description"):
+            rule.description = t(f"rule.{rule.id}.description")
     if user_path is not None:
         user = load_user_rules(Path(user_path))
         merge_user_rules(ruleset, user)

@@ -19,7 +19,7 @@ from .config import APP_NAME, APP_TITLE, APP_VERSION, MODES, load_settings, user
 from .core.encoding import decode_bytes
 from .core.files import FileRun, RunError
 from .core import profiles
-from .core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES
+from .core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES, group_label
 from .core.pipeline import Sanitizer, load_default_ruleset
 from .core.rules import load_ruleset, load_user_rules, merge_user_rules, slow_pattern_warnings
 from .config import default_rules_path
@@ -109,8 +109,8 @@ def _err(msg: str) -> None:
 
 
 def list_categories() -> None:
-    for group, label in GROUPS.items():
-        print(f"{label}:")
+    for group in GROUPS:
+        print(f"{group_label(group)}:")
         for cat in CATEGORIES.values():
             if cat.group == group:
                 print(f"  {cat.id:<14} {cat.description}")
