@@ -83,6 +83,8 @@ class Settings:
     process_pdf: bool = True
     pdf_timeout_s: int = 60
     pdf_max_memory_mb: int = 1024
+    # Oberflächensprache: "auto" (Systemsprache), "de" oder "en"
+    language: str = "auto"
 
     # ------------------------------------------------------------------
     def is_category_enabled(self, category: str) -> bool:
@@ -125,6 +127,8 @@ class Settings:
     def _validate(self) -> None:
         if self.mode not in MODES:
             self.mode = "strict"
+        if self.language not in ("auto", "de", "en"):
+            self.language = "auto"
         if "{CATEGORY}" not in self.placeholder_style or "{N}" not in self.placeholder_style:
             self.placeholder_style = DEFAULT_PLACEHOLDER_STYLE
         self.max_files_per_run = int(self.max_files_per_run)

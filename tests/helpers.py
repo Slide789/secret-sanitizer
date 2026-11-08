@@ -23,6 +23,10 @@ TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 from secret_sanitizer import config  # noqa: E402
 
+# Bestehende Tests erwarten deutsche Texte, auf jedem System (vor dem Import von i18n)
+os.environ.setdefault("SECRET_SANITIZER_LANG", "de")
+from secret_sanitizer import i18n  # noqa: E402,F401
+
 os.environ[config.HOME_ENV_VAR] = str(TMP_ROOT / "config_home")
 
 from secret_sanitizer.config import Settings  # noqa: E402

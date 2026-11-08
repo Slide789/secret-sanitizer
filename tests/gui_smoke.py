@@ -22,6 +22,9 @@ if __name__ == "__main__":   # nicht in Worker-Prozessen, die dieses Skript erne
     shutil.rmtree(TMP, ignore_errors=True)
     TMP.mkdir(parents=True)
 
+# Deutsche Texte auf jedem System (vor dem Import von i18n)
+os.environ["SECRET_SANITIZER_LANG"] = "de"
+
 from secret_sanitizer import config  # noqa: E402
 
 os.environ[config.HOME_ENV_VAR] = str(TMP / "config_home")
@@ -130,7 +133,7 @@ def main() -> int:
     pump(app, 1.0)
     assert app.clean_box.get_text() == "[CUSTOM_1] bei [COMPANY_1] von 203.0.113.77", app.clean_box.get_text()
 
-    # 5b) KI-Antwort zurückübersetzen (Text-Sitzung und letzter Ordnerlauf)
+    # 5b) Antwort zurückübersetzen (Text-Sitzung und letzter Ordnerlauf)
     app._set_original("Server 10.20.30.40 password=Geheim99x", None)
     pump(app, 1.0)
     app.tabs.set("Antwort zurückübersetzen")

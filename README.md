@@ -1,18 +1,19 @@
 # Secret Sanitizer (`secret_sanitizer`)
 
-Ein Windows-Tool, das Texte, Logs, Konfigurationen und Befehlsausgaben **vor dem Senden an eine KI bereinigt**.
-Passwörter, Tokens, Schlüssel, IP-Adressen, Hostnamen, Benutzernamen, E-Mail-Adressen usw. werden erkannt und
-durch **konsistente Platzhalter** ersetzt, z. B. `[PASSWORD_1]`, `[IP_3]`, `[EMAIL_2]`. Derselbe Wert bekommt
-immer denselben Platzhalter. So versteht die KI den Zusammenhang, sieht aber keine echten Daten.
+Wer ein Log, eine Konfiguration, eine Befehlsausgabe oder ein Dokument weitergibt, etwa in ein Ticket, an den
+Support, in ein Forum, eine Doku oder einen KI-Chat, gibt dabei oft mehr preis als gedacht: Passwörter,
+Tokens, interne Hostnamen, IP-Adressen, Benutzernamen. Secret Sanitizer ist ein Windows-Tool, das solche
+Werte vorher findet und durch Platzhalter wie `[PASSWORD_1]`, `[IP_3]` oder `[EMAIL_2]` ersetzt.
 
-Das Tool läuft unter Windows, verarbeitet aber genauso **Linux-Material** (Logs, Configs, Shell-Ausgaben).
+Derselbe Wert bekommt dabei immer denselben Platzhalter. Taucht `srv01.corp.local` zehnmal im Log auf, steht
+dort zehnmal `[HOSTNAME_1]`. Wer den Text liest, kann also weiterhin nachvollziehen, was zusammengehört, ohne
+die echten Daten zu sehen. Eine Antwort mit diesen Platzhaltern lässt sich anschließend im Tool wieder in die
+echten Werte zurückübersetzen.
 
-> ### ⚠ Wichtiger Hinweis
-> Das Tool **senkt das Risiko deutlich, bietet aber keine 100-%-Garantie**, dass alle sensiblen Daten gefunden
-> werden. Prüfe das Ergebnis **immer selbst**, bevor du es an eine KI sendest, und beachte die internen
-> Richtlinien deines Unternehmens zur KI-Nutzung.
+Das Programm selbst läuft unter Windows, kommt aber mit Linux-Material (Logs, Configs, Shell-Ausgaben)
+genauso gut zurecht.
 
----
+> Hinweis: Ergebnisse bitte immer selbst prüfen.
 
 ## Inhalt
 
@@ -27,17 +28,15 @@ Das Tool läuft unter Windows, verarbeitet aber genauso **Linux-Material** (Logs
 9. [Grenzen und bekannte Einschränkungen](#9-grenzen-und-bekannte-einschränkungen)
 10. [Entwicklung und Tests](#10-entwicklung-und-tests)
 
----
-
 ## 1. Installation als .exe
 
-Die .exe enthält alles, was das Programm braucht. Python muss **nicht** installiert sein.
+Die .exe enthält alles, was das Programm braucht. Python muss nicht installiert sein.
 
 1. Die Datei `secret_sanitizer.exe` in einen beliebigen Ordner kopieren, z. B. `C:\Tools\SecretSanitizer\`.
 2. Doppelklick auf `secret_sanitizer.exe` startet die Oberfläche.
-3. Beim ersten Start zeigt Windows eventuell die Meldung **„Der Computer wurde durch Windows geschützt“**
-   (SmartScreen), weil die Datei nicht digital signiert ist. Klicke auf **„Weitere Informationen“** und dann
-   auf **„Trotzdem ausführen“**. In Firmenumgebungen muss die IT die Datei eventuell freigeben.
+3. Beim ersten Start zeigt Windows eventuell die Meldung „Der Computer wurde durch Windows geschützt“
+   (SmartScreen), weil die Datei nicht digital signiert ist. Klicke auf „Weitere Informationen“ und dann
+   auf „Trotzdem ausführen“. In Firmenumgebungen muss die IT die Datei eventuell freigeben.
 4. Optional für die Kommandozeile: `secret_sanitizer_cli.exe` daneben legen (siehe [Kommandozeile](#5-kommandozeile)).
 
 Deinstallieren: die .exe-Dateien löschen. Wenn du auch die Einstellungen entfernen willst, lösche zusätzlich den
@@ -45,10 +44,10 @@ Ordner `%APPDATA%\secret_sanitizer` (dazu `%APPDATA%\secret_sanitizer` in die Ad
 
 ## 2. Installation aus dem Quellcode
 
-Voraussetzung: **Python 3.10 oder neuer**.
+Voraussetzung: Python 3.10 oder neuer.
 
 1. Python von <https://www.python.org/downloads/windows/> installieren. Im Installer
-   **„Add python.exe to PATH“** und **„tcl/tk and IDLE“** anhaken (Letzteres ist Standard und wird für die
+   „Add python.exe to PATH“ und „tcl/tk and IDLE“ anhaken (Letzteres ist Standard und wird für die
    Oberfläche gebraucht).
 2. Eingabeaufforderung (`cmd`) oder PowerShell im Projektordner öffnen, d. h. in dem Ordner, in dem diese
    README liegt.
@@ -69,13 +68,13 @@ Voraussetzung: **Python 3.10 oder neuer**.
    ```
    Ohne Argumente startet die Oberfläche, mit Argumenten die Kommandozeile (`python -m secret_sanitizer --help`).
 
-Erkennung, Regeln und Kommandozeile kommen **ohne Zusatzpakete** aus. Für reine Kommandozeilen-Nutzung kannst du
+Erkennung, Regeln und Kommandozeile kommen ohne Zusatzpakete aus. Für reine Kommandozeilen-Nutzung kannst du
 Schritt 4 also überspringen. Ohne `pypdf` werden PDFs übersprungen, ohne `tkinterdnd2` gibt es kein Drag & Drop.
-Zur Laufzeit lädt das Programm **nie** etwas aus dem Internet nach; die Pakete stecken in der .exe.
+Zur Laufzeit lädt das Programm nie etwas aus dem Internet nach; die Pakete stecken in der .exe.
 
 ## 3. Die .exe selbst bauen
 
-Die .exe muss **unter Windows** gebaut werden. PyInstaller erzeugt immer Programme für das System, auf dem es
+Die .exe muss unter Windows gebaut werden. PyInstaller erzeugt immer Programme für das System, auf dem es
 läuft. Ein Build unter Linux ergibt keine .exe.
 
 1. Python 3.10+ wie in Abschnitt 2 installieren (Python von python.org verwenden).
@@ -88,7 +87,7 @@ läuft. Ein Build unter Linux ergibt keine .exe.
    danach:
    - `dist\secret_sanitizer.exe`: Oberfläche (ohne Konsolenfenster)
    - `dist\secret_sanitizer_cli.exe`: Kommandozeile
-3. Danach auf einem **sauberen Windows-Rechner ohne Python** testen: die .exe starten, Text einfügen, Ordner
+3. Danach auf einem sauberen Windows-Rechner ohne Python testen: die .exe starten, Text einfügen, Ordner
    bereinigen.
 
 Manueller Aufruf ohne Skript: `pyinstaller --noconfirm --clean packaging\secret_sanitizer.spec`
@@ -102,32 +101,32 @@ und rechts die bereinigte Fassung, unten die Trefferliste und der Kopier-Button.
 
 ### Oben: Modus und Kategorien
 
-- **Modus** bestimmt, ab welcher Sicherheit ersetzt wird:
-  - **Streng** (Standard, empfohlen): ersetzt auch unsichere Treffer. Lieber ein Platzhalter zu viel.
-  - **Normal**: ausgewogen.
-  - **Locker**: nur sichere Treffer. Besser lesbar, aber **riskanter**.
-- **Kategorien**: Jede Kategorie (Passwörter, IP-Adressen, Hostnamen …) lässt sich einzeln an- und abschalten.
-  **Personenbezogene Daten** (E-Mail-Adressen, Personennamen) haben einen eigenen Schalter.
+- Modus bestimmt, ab welcher Sicherheit ersetzt wird:
+  - Streng (Standard, empfohlen) ersetzt auch Treffer, bei denen sich das Tool nicht sicher ist. Ein
+    Platzhalter zu viel schadet weniger als ein übersehenes Passwort.
+  - Normal liegt dazwischen.
+  - Locker ersetzt nur eindeutige Treffer. Der Text bleibt besser lesbar, es rutscht aber eher etwas durch.
+- Kategorien: Jede Kategorie (Passwörter, IP-Adressen, Hostnamen …) lässt sich einzeln an- und abschalten.
+  Personenbezogene Daten (E-Mail-Adressen, Personennamen) haben einen eigenen Schalter.
   Mit „Kategorien ▲“ lässt sich der Bereich einklappen.
 - Modus und Kategorien werden automatisch gespeichert.
 
 ### Reiter „Text & Vorschau“
 
-1. Text in das linke Feld **„Original“** einfügen (Strg+V oder „Aus Zwischenablage einfügen“), über
-   **„Datei öffnen“** eine Textdatei laden oder die Datei einfach **ins Fenster ziehen** (Drag & Drop).
-2. Rechts erscheint sofort die **bereinigte Fassung**. Die Treffer sind in beiden Feldern **farbig nach
-   Kategorie** markiert.
-3. Unten steht die **Trefferliste**: ein Eintrag pro ersetztem Wert, mit Platzhalter, Kategorie, gekürztem
+1. Text in das linke Feld „Original“ einfügen (Strg+V oder „Aus Zwischenablage einfügen“), über
+   „Datei öffnen“ eine Textdatei laden oder die Datei einfach ins Fenster ziehen (Drag & Drop).
+2. Rechts erscheint sofort die bereinigte Fassung. Die Treffer sind in beiden Feldern farbig nach
+   Kategorie markiert.
+3. Unten steht die Trefferliste: ein Eintrag pro ersetztem Wert, mit Platzhalter, Kategorie, gekürztem
    Originalwert, Anzahl, erkennendem Verfahren und Konfidenz. Ein Klick auf einen Eintrag markiert die Stellen
    im Text.
-4. **„Doch nicht ersetzen“** (oder Doppelklick) nimmt einen Wert aus. Das gilt dann für **alle** Vorkommen
+4. „Doch nicht ersetzen“ (oder Doppelklick) nimmt einen Wert aus. Das gilt dann für alle Vorkommen
    dieses Werts. Mit „Wieder ersetzen“ wird das rückgängig gemacht. Ausnahmen gelten nur bis zum Schließen und
    werden nicht gespeichert.
-   **„Immer ignorieren“** übernimmt den markierten Wert nach einer Rückfrage dauerhaft in die Allowlist
+   „Immer ignorieren“ übernimmt den markierten Wert nach einer Rückfrage dauerhaft in die Allowlist
    (im Klartext in `user_rules.json`, also nur für Werte, die wirklich kein Geheimnis sind).
-5. **„Bereinigten Text kopieren“** legt das Ergebnis in die Zwischenablage. Ergebnis prüfen und dann in die KI
-   einfügen.
-6. War eine Datei geladen, schreibt **„Bereinigte Datei speichern“** das Ergebnis in den Ausgabeordner.
+5. „Bereinigten Text kopieren“ legt das Ergebnis in die Zwischenablage.
+6. War eine Datei geladen, schreibt „Bereinigte Datei speichern“ das Ergebnis in den Ausgabeordner.
    Das Original bleibt unverändert.
 
 Ab 50 000 Zeichen läuft die Analyse im Hintergrund, das Fenster bleibt dabei bedienbar. Sehr große Texte
@@ -136,58 +135,58 @@ sonst sehr langsam wird. Stattdessen gibt es eine Zusammenfassung mit Stichprobe
 trotzdem. Ein Archiv (`.zip`, `.gz` …), ein Office-Dokument oder eine PDF, das hier geöffnet oder hineingezogen
 wird, wird direkt als Dateilauf bereinigt.
 
-**Drag & Drop**: Eine Textdatei landet in der Vorschau, ein Ordner im Reiter „Dateien & Ordner“. Zieht man eine
+Drag & Drop: Eine Textdatei landet in der Vorschau, ein Ordner im Reiter „Dateien & Ordner“. Zieht man eine
 Datei auf den Reiter „Dateien & Ordner“, wird sie dort als Eingabe übernommen. Bitte immer nur ein Element
 ablegen (mehrere Dateien am besten in einen Ordner legen).
 
 ### Reiter „Dateien & Ordner“
 
-1. **„Datei öffnen“** oder **„Ordner wählen“** (alle Dateien inklusive Unterordner).
-2. **Ausgabeordner**: leer lassen bedeutet automatisch `<eingabeordner>_sanitized` neben dem Eingabeordner.
+1. „Datei öffnen“ oder „Ordner wählen“ (alle Dateien inklusive Unterordner).
+2. Ausgabeordner: leer lassen bedeutet automatisch `<eingabeordner>_sanitized` neben dem Eingabeordner.
    Beispiel: `C:\Logs\Server1` wird zu `C:\Logs\Server1_sanitized`. Bei einer einzelnen Datei
    `C:\Logs\app.log` landet das Ergebnis in `C:\Logs_sanitized\app.log`.
-3. **„Bereinigen starten“**. Die Unterordnerstruktur bleibt erhalten, die **Originale werden nie verändert**.
-4. Danach erscheint der **Bericht**: bearbeitete, übersprungene (z. B. Binärdateien) und fehlgeschlagene Dateien
-   mit Anzahl der Ersetzungen pro Kategorie, **ohne Originalwerte**. Der Bericht wird auch als
+3. „Bereinigen starten“. Die Unterordnerstruktur bleibt erhalten, die Originale werden nie verändert.
+4. Danach erscheint der Bericht: bearbeitete, übersprungene (z. B. Binärdateien) und fehlgeschlagene Dateien
+   mit Anzahl der Ersetzungen pro Kategorie, ohne Originalwerte. Der Bericht wird auch als
    `secret_sanitizer_bericht.txt` in den Ausgabeordner geschrieben.
 5. Dateien über `max_file_size_mb` (Standard 100 MB) lösen eine Rückfrage aus.
-6. **Ausschlussmuster**: Ordner wie `.git`, `node_modules`, `__pycache__`, `.venv` und frühere
+6. Ausschlussmuster: Ordner wie `.git`, `node_modules`, `__pycache__`, `.venv` und frühere
    `*_sanitized`-Ausgaben werden übersprungen und im Bericht aufgeführt (änderbar im Reiter „Einstellungen“).
-7. **„Ausgabeordner vorher leeren“** entfernt Ergebnisse früherer Läufe. Das passiert nur, wenn der Ordner leer
+7. „Ausgabeordner vorher leeren“ entfernt Ergebnisse früherer Läufe. Das passiert nur, wenn der Ordner leer
    ist oder einen Bericht dieses Programms enthält; ein fremder Ordner wird nie geleert. Ohne das Häkchen warnt
-   der Bericht vor **veralteten** Dateien aus früheren Läufen (deren Platzhalter-Nummern passen nicht zum
+   der Bericht vor veralteten Dateien aus früheren Läufen (deren Platzhalter-Nummern passen nicht zum
    aktuellen Lauf).
-8. **„Dateinamen bereinigen“** ersetzt auch in Ordner- und Dateinamen, z. B.
+8. „Dateinamen bereinigen“ ersetzt auch in Ordner- und Dateinamen, z. B.
    `backup_srv01.corp.local.log` → `backup_[HOSTNAME_1].log`. Der Bericht zeigt dann nur die bereinigten Namen.
-9. **Archive** (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) werden entpackt, bereinigt und wieder eingepackt
+9. Archive (`.zip`, `.tar`, `.tar.gz`/`.tgz`, `.gz`) werden entpackt, bereinigt und wieder eingepackt
    (Häkchen „Archive bereinigen“, Standard an). Binäre oder verschlüsselte Einträge fehlen im neuen Archiv und
    stehen im Bericht.
-10. **Word, Excel, PowerPoint** (`.docx`, `.xlsx`, `.pptx`) werden direkt bereinigt, Layout und Formatierung
+10. Word, Excel, PowerPoint (`.docx`, `.xlsx`, `.pptx`) werden direkt bereinigt, Layout und Formatierung
     bleiben erhalten. Bereinigt werden Texte, Tabellen, Kopf-/Fußzeilen, Fußnoten, Textfelder, Zellen, Formeln,
     Folien, Notizen, Diagrammbeschriftungen, Kommentare, Alternativtexte, Link-Ziele und Metadaten. Außerdem:
-    - **Nachverfolgte Änderungen werden angenommen** (gelöschter Text steckt sonst weiter in der Datei),
-    - **Autorennamen** (Dokument, Kommentare, Änderungen) werden geleert,
-    - **Bilder und eingebettete Objekte werden entfernt**, weil ihr Inhalt nicht geprüft werden kann (z. B. ein
+    - Nachverfolgte Änderungen werden angenommen (gelöschter Text steckt sonst weiter in der Datei),
+    - Autorennamen (Dokument, Kommentare, Änderungen) werden geleert,
+    - Bilder und eingebettete Objekte werden entfernt, weil ihr Inhalt nicht geprüft werden kann (z. B. ein
       Screenshot mit Passwort). Abschaltbar im Reiter „Einstellungen“; der Bericht nennt die Anzahl.
     - Dokumente mit Makros (`.docm`, `.xlsm`, `.pptm`) werden übersprungen.
     - Excel: Ein bereinigter Blattname wird zu einem gültigen Namen wie `(HOSTNAME_1)`; Formeln, Druckbereiche
       und Diagramme verweisen auf den neuen Namen.
-11. **PDFs**: Der Text wird gelesen und als bereinigte **`<name>.pdf.txt`** gespeichert (die PDF selbst wird
+11. PDFs: Der Text wird gelesen und als bereinigte `<name>.pdf.txt` gespeichert (die PDF selbst wird
     nicht ausgegeben). Gescannte PDFs ohne Text und PDFs mit Kennwort werden übersprungen.
-12. **Mehrere CPU-Kerne**: Ab 4 Dateien und 4 MB werden die Dateien parallel bearbeitet (Einstellung
+12. Mehrere CPU-Kerne: Ab 4 Dateien und 4 MB werden die Dateien parallel bearbeitet (Einstellung
     „CPU-Kerne“, Standard automatisch). Das Ergebnis ist exakt dasselbe wie mit einem Kern; bei typischen Logs
     ist es etwa 4-mal so schnell (8 Kerne). Der Bericht nennt die Anzahl der Kerne.
 
-Bei einem Ordnerlauf bekommt derselbe Wert **in allen Dateien denselben Platzhalter**, auch in Archiven,
+Bei einem Ordnerlauf bekommt derselbe Wert in allen Dateien denselben Platzhalter, auch in Archiven,
 Office-Dokumenten und PDFs. Die Platzhalter-Nummern sind über den ganzen Lauf fortlaufend.
 
 ### Reiter „Antwort zurückübersetzen“
 
-Die KI antwortet mit Platzhaltern, z. B. „Starte den Dienst auf `[HOSTNAME_1]` neu“? Antwort links einfügen,
-rechts stehen wieder die echten Werte (farbig markiert). Oben wählst du, ob die Platzhalter aus dem Reiter
-„Text & Vorschau“ oder aus dem **letzten Ordnerlauf** stammen. Unbekannte Platzhalter werden gemeldet.
-Das funktioniert nur, solange das Programm geöffnet ist, denn die Zuordnung wird nie gespeichert. Den
-zurückübersetzten Text **nicht** wieder an die KI schicken.
+Antworten auf bereinigten Text (vom Support, von Kollegen, von einer KI) enthalten oft dieselben
+Platzhalter, etwa „Starte den Dienst auf `[HOSTNAME_1]` neu“. Füge die
+Antwort links ein, rechts stehen dann wieder die echten Werte (farbig markiert). Oben wählst du, ob die Platzhalter aus dem Reiter
+„Text & Vorschau“ oder aus dem letzten Ordnerlauf stammen. Unbekannte Platzhalter werden gemeldet.
+Das funktioniert nur, solange das Programm geöffnet ist, denn die Zuordnung wird nie gespeichert.
 
 Unterstützt werden Textdateien in UTF-8, UTF-16 (z. B. PowerShell-Ausgaben mit `>`), UTF-32, cp1252 und Latin-1.
 Die Kodierung wird automatisch erkannt. Windows-Zeilenenden (`\r\n`) bleiben erhalten. Die Ausgabe ist
@@ -195,26 +194,26 @@ standardmäßig UTF-8.
 
 ### Reiter „Regeln“
 
-- **Eigene Regeln**: Name, Beschreibung, Muster (regulärer Ausdruck), Kategorie und Konfidenz eintragen und
-  „Regel übernehmen“ klicken. Im **Testfeld** darunter siehst du beim Tippen sofort, was das Muster findet.
+- Eigene Regeln: Name, Beschreibung, Muster (regulärer Ausdruck), Kategorie und Konfidenz eintragen und
+  „Regel übernehmen“ klicken. Im Testfeld darunter siehst du beim Tippen sofort, was das Muster findet.
   Tipp: Mit `(?P<value>...)` wird nur ein Teil ersetzt, z. B. `kunde=(?P<value>\w+)` ersetzt nur den
   Kundennamen. Muster mit verschachtelten Wiederholungen wie `(a+)+` können extrem langsam werden; der Editor
   warnt davor und testet sie nicht live.
-- **Eigene Wortlisten**: Kategorie wählen (z. B. Firmennamen, Hostnamen, Benutzernamen, Projektnamen,
+- Eigene Wortlisten: Kategorie wählen (z. B. Firmennamen, Hostnamen, Benutzernamen, Projektnamen,
   Personennamen) und einen Eintrag pro Zeile eintragen. Diese Wörter werden exakt ersetzt.
-- **Allowlist**: Einträge, die **nie** ersetzt werden, einer pro Zeile. Mit `re:` am Anfang ist der Eintrag ein
+- Allowlist: Einträge, die nie ersetzt werden, einer pro Zeile. Mit `re:` am Anfang ist der Eintrag ein
   regulärer Ausdruck.
-- **„Alle Regeln speichern“** aktiviert die Änderungen.
-- **Profile** (Leiste unten): Mehrere Regelsätze speichern und wechseln, z. B. „Kunde A“ und „Windows-Logs“.
-  - **Speichern als …** legt das aktuelle Profil im Konfigurationsordner ab (mit Wortlisten),
-    **Laden** übernimmt ein gespeichertes Profil.
-  - **Exportieren …** schreibt eine Profildatei zum Weitergeben, z. B. an Kollegen. Die Wortlisten enthalten
-    Firmen- und Personennamen im Klartext und werden darum **nur auf Nachfrage** mitexportiert.
-  - **Importieren …** liest eine Profildatei. Vorher zeigt das Tool, was sich ändert (neue/geänderte Regeln,
-    neue Wörter, Allowlist), und fragt: **Zusammenführen** oder **Ersetzen**. Ungültige Einträge und
+- „Alle Regeln speichern“ aktiviert die Änderungen.
+- Profile (Leiste unten): Mehrere Regelsätze speichern und wechseln, z. B. „Kunde A“ und „Windows-Logs“.
+  - Speichern als … legt das aktuelle Profil im Konfigurationsordner ab (mit Wortlisten),
+    Laden übernimmt ein gespeichertes Profil.
+  - Exportieren … schreibt eine Profildatei zum Weitergeben, z. B. an Kollegen. Die Wortlisten enthalten
+    Firmen- und Personennamen im Klartext und werden darum nur auf Nachfrage mitexportiert.
+  - Importieren … liest eine Profildatei. Vorher zeigt das Tool, was sich ändert (neue/geänderte Regeln,
+    neue Wörter, Allowlist), und fragt: Zusammenführen oder Ersetzen. Ungültige Einträge und
     möglicherweise langsame Muster werden gemeldet und nicht übernommen bzw. markiert.
-  - Profile enthalten nur Regeln, Wortlisten, Allowlist sowie Modus und Kategorien, **keine Pfade oder
-    Befehle**.
+  - Profile enthalten nur Regeln, Wortlisten, Allowlist sowie Modus und Kategorien, keine Pfade oder
+    Befehle.
 
 ### Reiter „Einstellungen“
 
@@ -291,21 +290,21 @@ Konfidenz gewinnt. Der Modus legt die Mindest-Konfidenz fest.
 
 | Verfahren | Beispiele |
 |---|---|
-| **Bekannte Formate (Regex)** | AWS-Keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic-Keys, Hugging Face `hf_…`, PyPI `pypi-…`, Discord- und Telegram-Bot-Tokens, JWT, Azure `AccountKey=` und SAS-Signaturen `sig=…`, `user:pass@host` in URLs, E-Mail, IPv4/IPv6 (auch private, aber nicht `Version 1.2.3.4`), MAC, Hostnamen/FQDNs |
-| **Telefonnummern** | `+49 171 2345678`, `+49 (0)30 1234567`, `0171/2345678`, `030 12345678` (Kategorie `PHONE`, personenbezogen) |
-| **PEM-Blöcke** | `-----BEGIN … PRIVATE KEY-----` bis `-----END …-----` als Ganzes, auch abgeschnittene Blöcke; Zertifikate |
-| **Kontext (key=value)** | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, Connection-Strings, auch simple Passwörter wie `hunter2`, Passphrasen mit Leerzeichen (`password: correct horse battery`) und YAML-Blockwerte (`password: \|` mit eingerücktem Wert) |
-| **Kommandozeile** | `mysql -pGEHEIM`, `--password=…`, `curl -u user:pass`, `sshpass -p`, `net user name pw`, `/p:…`, PowerShell `-Password …`, `ConvertTo-SecureString "…"` |
-| **Windows** | SIDs `S-1-5-21-…`, `C:\Users\<Name>\…`, `DOMÄNE\benutzer`, UNC `\\server\share`, NTLM-Hashes (pwdump), `HKEY_USERS\<SID>` |
-| **Linux** | `/home/<name>/…`, `/etc/shadow`-Hashes, SSH-Schlüssel, `known_hosts`, Docker-`config.json`, Kubernetes-Secrets (Base64), Shell-Prompts `user@host` |
-| **Passwort-Hashes** | `$6$`, `$5$`, `$1$` (MD5-crypt), bcrypt `$2b$`, yescrypt `$y$`, NTLM |
-| **Entropie** | unbekannte zufällige Zeichenketten (z. B. Keys ohne bekanntes Format); Ausnahmen für Datei-Hashes, GUIDs, Pfade und Bezeichner |
-| **Prüfsummen** | Kreditkarten (Luhn) und IBAN (Modulo 97). Nur gültige Nummern werden ersetzt |
-| **Eigene Wortlisten** | Firmennamen, interne Hostnamen, Domains, Benutzer, Projekte, Personennamen |
-| **Konsistenz** | Ein erkannter Wert wird überall ersetzt, auch URL-codiert, JSON-/HTML-escaped und in anderer Groß-/Kleinschreibung |
+| Bekannte Formate (Regex) | AWS-Keys `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Google, Stripe, OpenAI/Anthropic-Keys, Hugging Face `hf_…`, PyPI `pypi-…`, Discord- und Telegram-Bot-Tokens, JWT, Azure `AccountKey=` und SAS-Signaturen `sig=…`, `user:pass@host` in URLs, E-Mail, IPv4/IPv6 (auch private, aber nicht `Version 1.2.3.4`), MAC, Hostnamen/FQDNs |
+| Telefonnummern | `+49 171 2345678`, `+49 (0)30 1234567`, `0171/2345678`, `030 12345678` (Kategorie `PHONE`, personenbezogen) |
+| PEM-Blöcke | `-----BEGIN … PRIVATE KEY-----` bis `-----END …-----` als Ganzes, auch abgeschnittene Blöcke; Zertifikate |
+| Kontext (key=value) | `password=…`, `"api_key": "…"`, `token: …`, `export DB_PASSWORD=…`, `<password>…</password>`, `Authorization: Bearer …`, Connection-Strings, auch simple Passwörter wie `hunter2`, Passphrasen mit Leerzeichen (`password: correct horse battery`) und YAML-Blockwerte (`password: \|` mit eingerücktem Wert) |
+| Kommandozeile | `mysql -pGEHEIM`, `--password=…`, `curl -u user:pass`, `sshpass -p`, `net user name pw`, `/p:…`, PowerShell `-Password …`, `ConvertTo-SecureString "…"` |
+| Windows | SIDs `S-1-5-21-…`, `C:\Users\<Name>\…`, `DOMÄNE\benutzer`, UNC `\\server\share`, NTLM-Hashes (pwdump), `HKEY_USERS\<SID>` |
+| Linux | `/home/<name>/…`, `/etc/shadow`-Hashes, SSH-Schlüssel, `known_hosts`, Docker-`config.json`, Kubernetes-Secrets (Base64), Shell-Prompts `user@host` |
+| Passwort-Hashes | `$6$`, `$5$`, `$1$` (MD5-crypt), bcrypt `$2b$`, yescrypt `$y$`, NTLM |
+| Entropie | unbekannte zufällige Zeichenketten (z. B. Keys ohne bekanntes Format); Ausnahmen für Datei-Hashes, GUIDs, Pfade und Bezeichner |
+| Prüfsummen | Kreditkarten (Luhn) und IBAN (Modulo 97). Nur gültige Nummern werden ersetzt |
+| Eigene Wortlisten | Firmennamen, interne Hostnamen, Domains, Benutzer, Projekte, Personennamen |
+| Konsistenz | Ein erkannter Wert wird überall ersetzt, auch URL-codiert, JSON-/HTML-escaped und in anderer Groß-/Kleinschreibung |
 
-Standardmäßig **nicht** ersetzt (Allowlist): `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, Netzmasken,
-`example.com/.org/.net` sowie symbolische Werte wie `true`, `null`, `********`, `${VAR}`.
+Standardmäßig nicht ersetzt (Allowlist): `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, Netzmasken,
+`example.com/.org/.net` sowie symbolische Werte wie `true`, `null`, ``, `${VAR}`.
 
 ## 7. Konfiguration und eigene Regeln
 
@@ -366,57 +365,57 @@ Standardregel abschalten.
 
 ## 8. Sicherheit
 
-- **Komplett offline**: keine Netzwerkzugriffe, keine Telemetrie, keine Update-Checks, keine Online-Prüfung
+- Komplett offline: keine Netzwerkzugriffe, keine Telemetrie, keine Update-Checks, keine Online-Prüfung
   gefundener Keys. Ein Test stellt sicher, dass kein Netzwerkmodul importiert wird.
-- **Keine Originalwerte in Logs, Berichten oder Fehlermeldungen.** Fehlermeldungen nennen nur die Fehlerart
+- Keine Originalwerte in Logs, Berichten oder Fehlermeldungen. Fehlermeldungen nennen nur die Fehlerart
   (z. B. „keine Berechtigung“), nie den Ausnahmetext. Die Trefferliste in der Oberfläche zeigt Werte nur
   gekürzt an.
-- **Das Mapping (Wert → Platzhalter) liegt nur im Arbeitsspeicher** und wird nie gespeichert. Die
-  Rückübersetzung von KI-Antworten nutzt genau dieses Mapping und funktioniert deshalb nur, solange das
+- Das Mapping (Wert → Platzhalter) liegt nur im Arbeitsspeicher und wird nie gespeichert. Die
+  Rückübersetzung von Antworten nutzt genau dieses Mapping und funktioniert deshalb nur, solange das
   Programm geöffnet ist. Beim Schließen wird es verworfen.
-- **Archive** werden in einen Temp-Ordner entpackt, der nach dem Lauf immer gelöscht wird, auch bei Fehlern
+- Archive werden in einen Temp-Ordner entpackt, der nach dem Lauf immer gelöscht wird, auch bei Fehlern
   oder Abbruch. Pfade wie `../` im Archiv werden abgelehnt, Größen- und Anzahl-Limits schützen vor Zip-Bomben.
-- **Office-Dokumente** werden auf Textebene bearbeitet, ohne XML-Parser: Es werden keine Entitäten
+- Office-Dokumente werden auf Textebene bearbeitet, ohne XML-Parser: Es werden keine Entitäten
   expandiert, Dateien mit `DOCTYPE` werden abgelehnt. Bliebe nach dem Entfernen eines Bildes ein Verweis
   darauf übrig, wird lieber gar keine Ausgabe geschrieben als ein beschädigtes Dokument.
-- **PDFs** werden in einem eigenen Prozess gelesen, mit Zeitlimit und hartem Speicherlimit (Windows:
+- PDFs werden in einem eigenen Prozess gelesen, mit Zeitlimit und hartem Speicherlimit (Windows:
   Job-Objekt). Eine präparierte PDF kann das Programm also weder aufhängen noch den Speicher füllen. Der
   gelesene Text bleibt im Arbeitsspeicher und landet nie in einer Temp-Datei.
-- **Mehrere CPU-Kerne**: Werte wandern nur über interne Pipes zwischen den Prozessen, nie über die Festplatte.
-- **Profile** enthalten nur Daten (keine Pfade, keine Befehle) und werden beim Import streng geprüft.
-- **Abhängigkeiten** sind mit SHA-256-Prüfsummen angepinnt; ein manipuliertes Paket bricht die Installation ab.
-- **Originaldateien werden nie verändert.** Ausgaben landen in einem separaten Ordner. Der Ausgabeordner darf
+- Mehrere CPU-Kerne: Werte wandern nur über interne Pipes zwischen den Prozessen, nie über die Festplatte.
+- Profile enthalten nur Daten (keine Pfade, keine Befehle) und werden beim Import streng geprüft.
+- Abhängigkeiten sind mit SHA-256-Prüfsummen angepinnt; ein manipuliertes Paket bricht die Installation ab.
+- Originaldateien werden nie verändert. Ausgaben landen in einem separaten Ordner. Der Ausgabeordner darf
   nicht der Eingabeordner oder ein übergeordneter Ordner sein. Ausgabedateien werden erst vollständig
   geschrieben und dann umbenannt, halbe Dateien bleiben nicht liegen.
-- Der Bericht enthält nur **relative Pfade** und Zähler (mit „Dateinamen bereinigen“ nur die bereinigten
+- Der Bericht enthält nur relative Pfade und Zähler (mit „Dateinamen bereinigen“ nur die bereinigten
   Namen).
 
 ## 9. Grenzen und bekannte Einschränkungen
 
-- **Keine 100-%-Garantie.** Vor allem Personennamen im Fließtext, unübliche Passwörter ohne Schlüsselwort und
-  firmenspezifische Bezeichnungen werden nur gefunden, wenn sie in einer **eigenen Wortliste** stehen oder ein
+- Keine 100-%-Garantie. Vor allem Personennamen im Fließtext, unübliche Passwörter ohne Schlüsselwort und
+  firmenspezifische Bezeichnungen werden nur gefunden, wenn sie in einer eigenen Wortliste stehen oder ein
   erkennbares Muster haben. Namenserkennung per KI (NER) ist erst für Version 2 geplant.
-- **Dateinamen werden standardmäßig nicht bereinigt.** Dafür „Dateinamen bereinigen“ bzw.
+- Dateinamen werden standardmäßig nicht bereinigt. Dafür „Dateinamen bereinigen“ bzw.
   `--sanitize-filenames` einschalten.
-- Der Modus **Locker** lässt bewusst unsichere Treffer stehen, z. B. Benutzernamen aus `DOMÄNE\name` oder
+- Der Modus Locker lässt bewusst unsichere Treffer stehen, z. B. Benutzernamen aus `DOMÄNE\name` oder
   allgemeine Hostnamen.
 - Im Modus Streng werden auch öffentliche Domains wie `github.com` ersetzt. Bei Bedarf in die Allowlist
   aufnehmen.
-- Wurde ein Wert einmal erkannt, ersetzt das Tool ihn sicherheitshalber in **jeder** Groß-/Kleinschreibung,
+- Wurde ein Wert einmal erkannt, ersetzt das Tool ihn sicherheitshalber in jeder Groß-/Kleinschreibung,
   auch wenn die Wortliste „Groß/klein ignorieren“ ausgeschaltet hat. Die Option wirkt also nur auf die
   Erkennung.
-- Dateien mit **gemischten** Zeilenenden werden einheitlich mit dem überwiegenden Zeilenende geschrieben.
-- **Tempo**: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool mit einem Kern etwa
+- Dateien mit gemischten Zeilenenden werden einheitlich mit dem überwiegenden Zeilenende geschrieben.
+- Tempo: Bei sehr dichten Logs (mehrere Treffer pro Zeile) schafft das Tool mit einem Kern etwa
   0,2–0,5 MB pro Sekunde, weil jede Datei zweimal gelesen wird (erst lernen, dann ersetzen); mit mehreren Kernen
   entsprechend mehr. Office-Dokumente und PDFs werden immer im Hauptprozess bearbeitet. Der Fortschritt wird
   angezeigt, abbrechen ist möglich.
 - Archive in Archiven, alte Office-Formate (`.doc`, `.xls`, `.ppt`), OpenDocument (`.odt` …) und Bilder werden
-  **nicht** verarbeitet. Binärdateien werden übersprungen und im Bericht aufgeführt.
-- **Office**: Bilder werden entfernt, nicht geprüft (keine Texterkennung). Eine Formel, die sich auf einen
+  nicht verarbeitet. Binärdateien werden übersprungen und im Bericht aufgeführt.
+- Office: Bilder werden entfernt, nicht geprüft (keine Texterkennung). Eine Formel, die sich auf einen
   bereinigten Wert verlässt (z. B. ein Passwort als Vergleichswert), rechnet danach mit dem Platzhalter. Ein
   Hinweis wie „Passwort“ in einer Tabellenzelle und der Wert in der Nachbarzelle werden nicht als Paar erkannt
   (nur innerhalb einer Zelle/Zeile, z. B. „Passwort: …“).
-- **PDF**: Keine Texterkennung (OCR) für gescannte PDFs. Die Reihenfolge des Textes folgt der PDF und kann bei
+- PDF: Keine Texterkennung (OCR) für gescannte PDFs. Die Reihenfolge des Textes folgt der PDF und kann bei
   mehrspaltigem Layout ungewohnt sein.
 - Telefonnummern werden nur mit Vorwahl und Trennzeichen erkannt (`030 12345678`), nicht als reine Ziffernfolge.
 - Drag & Drop nimmt immer nur ein Element auf einmal an.
@@ -432,7 +431,7 @@ Standardregel abschalten.
 python -m unittest discover -s tests -t .
 ```
 
-- Die Tests verwenden **ausschließlich erfundene Daten** aus `tests/fake_secrets/`. Erzeugt werden sie mit
+- Die Tests verwenden ausschließlich erfundene Daten aus `tests/fake_secrets/`. Erzeugt werden sie mit
   `python tests/fake_data.py`, darunter UTF-16-, cp1252-, CRLF- und Binärdateien.
 - Geprüft werden Treffer, Fehlalarme (Hashes, GUIDs, Pfade, Zahlen, Ports), dass Berichte und Fehlermeldungen
   keine Originalwerte enthalten, dass derselbe Wert in mehreren Schreibweisen überall ersetzt wird, die

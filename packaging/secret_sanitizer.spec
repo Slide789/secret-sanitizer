@@ -56,13 +56,15 @@ def write_version_file(exe_name, description):
     return path
 RULES = [(os.path.join(PKG, "rules", name), os.path.join(APP_NAME, "rules"))
          for name in ("default_rules.json", "user_rules.json")]
+LOCALES = [(os.path.join(PKG, "locales", name), os.path.join(APP_NAME, "locales"))
+           for name in ("de.json", "en.json")]
 # Nichts aus dem Netz, keine unnötigen Module
 EXCLUDES = ["unittest", "pydoc", "xmlrpc", "ftplib", "smtplib", "http.server", "tests"]
 
 gui = Analysis(
     [os.path.join(SPECPATH, "launcher_gui.py")],
     pathex=[ROOT],
-    datas=RULES + collect_data_files("customtkinter"),
+    datas=RULES + LOCALES + collect_data_files("customtkinter"),
     hiddenimports=["secret_sanitizer.gui.app"],
     excludes=EXCLUDES,
     noarchive=False,
@@ -81,7 +83,7 @@ gui_exe = EXE(
 cli = Analysis(
     [os.path.join(SPECPATH, "launcher_cli.py")],
     pathex=[ROOT],
-    datas=RULES,
+    datas=RULES + LOCALES,
     excludes=EXCLUDES + ["tkinter", "customtkinter", "_tkinter", "darkdetect", "PIL", "tkinterdnd2"],
     noarchive=False,
 )

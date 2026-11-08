@@ -44,8 +44,7 @@ from ..core.rules import load_ruleset, load_user_rules, merge_user_rules, save_u
 from .rule_editor import RuleEditor
 from .widgets import CategoryPanel, FindingTable, HighlightTextbox
 
-HINWEIS = ("⚠  Ergebnis vor dem Senden selbst prüfen! Das Tool senkt das Risiko deutlich, garantiert aber nicht, "
-           "dass alles gefunden wird. Interne Richtlinien zur KI-Nutzung beachten.")
+HINWEIS = "⚠  Ergebnisse bitte immer selbst prüfen."
 PREVIEW_DELAY_MS = 500
 # Ab dieser Textlänge läuft die Vorschau im Hintergrund, damit das Fenster
 # beim Einfügen großer Texte nicht einfriert.
@@ -79,7 +78,7 @@ class App(ctk.CTk, *_DND_BASES):
         self._queue: queue.Queue = queue.Queue()
         self._cancel = threading.Event()
         # Sitzungen (mit Mapping) der letzten Vorschau und des letzten Ordnerlaufs,
-        # nur im Arbeitsspeicher, für die Rückübersetzung von KI-Antworten
+        # nur im Arbeitsspeicher, für die Rückübersetzung von Antworten
         self._text_sanitizer: Sanitizer | None = None
         self._run_sanitizer: Sanitizer | None = None
         self._preview_gen = 0          # zählt Vorschau-Aufträge; alte Ergebnisse werden verworfen
@@ -223,8 +222,7 @@ class App(ctk.CTk, *_DND_BASES):
         left.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
         right = ctk.CTkFrame(tab)
         right.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
-        original_title = "Original (Text einfügen oder Datei hierher ziehen)" if TkinterDnD else "Original (hier Text einfügen)"
-        for frame, title in ((left, original_title), (right, "Bereinigt (das darf an die KI)")):
+        for frame, title in ((left, "Originaltext"), (right, "Bereinigter Text")):
             frame.grid_rowconfigure(1, weight=1)
             frame.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w",
@@ -434,7 +432,7 @@ class App(ctk.CTk, *_DND_BASES):
             return
         self.clipboard_clear()
         self.clipboard_append(self.result.text)
-        self._toast("Bereinigter Text wurde in die Zwischenablage kopiert. Bitte vor dem Senden kurz prüfen.")
+        self._toast("Bereinigter Text wurde in die Zwischenablage kopiert.")
 
     def paste_clipboard(self) -> None:
         try:
@@ -775,7 +773,7 @@ class App(ctk.CTk, *_DND_BASES):
     def _build_restore_tab(self, tab) -> None:
         tab.grid_columnconfigure((0, 1), weight=1)
         tab.grid_rowconfigure(2, weight=1)
-        ctk.CTkLabel(tab, text="Die KI antwortet mit Platzhaltern wie [HOSTNAME_1]? Antwort links einfügen: rechts "
+        ctk.CTkLabel(tab, text="Eine Antwort enthält Platzhalter wie [HOSTNAME_1]? Antwort links einfügen: rechts "
                                "stehen wieder die echten Werte. Das funktioniert nur, solange das Programm offen ist "
                                "(die Zuordnung wird nie gespeichert).",
                      anchor="w", justify="left", wraplength=1200).grid(row=0, column=0, columnspan=2, sticky="w",
@@ -799,7 +797,7 @@ class App(ctk.CTk, *_DND_BASES):
         ctk.CTkButton(tab, text="Text mit Originalwerten kopieren", height=40,
                       font=ctk.CTkFont(size=15, weight="bold"), command=self.copy_restored
                       ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        ctk.CTkLabel(tab, text="⚠  Der rechte Text enthält wieder echte Passwörter usw. – nicht an die KI zurückschicken.",
+        ctk.CTkLabel(tab, text="⚠  Der rechte Text enthält wieder die echten Werte.",
                      text_color="#e67e22", anchor="w").grid(row=4, column=0, columnspan=2, sticky="w")
         self._restore_job = None
 

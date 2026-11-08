@@ -1,8 +1,8 @@
 """PDF: Text herausziehen; ausgegeben wird eine bereinigte .txt-Datei.
 
 Die PDF selbst wird nicht geschwärzt: Text ist in PDFs oft so zerstückelt
-gespeichert, dass beim Schwärzen Reste stehen bleiben können. Für "an die KI
-schicken" reicht der Text.
+gespeichert, dass beim Schwärzen Reste stehen bleiben können. Zum Weitergeben
+reicht der Text.
 
 Sicherheit: PDFs sind ein beliebtes Angriffsformat. Der Text wird darum in
 einem eigenen Prozess gelesen (pypdf, reines Python) mit

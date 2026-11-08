@@ -1,4 +1,4 @@
-"""Bereinigt Texte, Logs und Konfigurationen vor dem Senden an eine KI."""
+"""Bereinigt Texte, Logs und Konfigurationen vor dem Weitergeben."""
 
 from .config import APP_NAME, APP_TITLE, APP_VERSION
 

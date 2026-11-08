@@ -29,8 +29,7 @@ EXIT_FILE_ERRORS = 1
 EXIT_USAGE = 2
 EXIT_FOUND = 3   # --check: mindestens ein Treffer
 
-HINWEIS = ("Hinweis: Ergebnis vor dem Senden selbst prüfen. Das Tool senkt das Risiko, "
-           "bietet aber keine 100-%-Garantie. Interne Richtlinien zur KI-Nutzung beachten.")
+HINWEIS = "Hinweis: Ergebnisse bitte immer selbst prüfen."
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -62,7 +62,7 @@ class PlaceholderMapping:
         self.style = style
         self._by_key: dict[str, tuple[str, str]] = {}   # key -> (Platzhalter, Kategorie)
         # Platzhalter -> (Originalwert in der zuerst gesehenen Schreibweise, Kategorie),
-        # für die Rückübersetzung von KI-Antworten (restore)
+        # für die Rückübersetzung von Antworten (restore)
         self._originals: dict[str, tuple[str, str]] = {}
         self._counters: dict[str, int] = {}
         self._matchers: list | None = None
@@ -106,7 +106,7 @@ class PlaceholderMapping:
 
     def restore(self, text: str) -> RestoreResult:
         """Rückübersetzung: ersetzt bekannte Platzhalter (z. B. in einer
-        KI-Antwort) wieder durch die Originalwerte. Platzhalter im
+        Antwort) wieder durch die Originalwerte. Platzhalter im
         Standardformat, die diese Sitzung nicht vergeben hat, werden gezählt."""
         result = RestoreResult(text)
         if not text:
