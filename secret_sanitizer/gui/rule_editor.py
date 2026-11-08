@@ -15,14 +15,12 @@ from ..core import profiles
 from ..core.models import CATEGORIES
 from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, redos_risk, rule_from_dict
 from ..detectors.wordlist_detector import compile_wordlist
+from ..i18n import t
 from . import dialogs
 from .widgets import HighlightTextbox, style_treeview
 
 CATEGORY_IDS = list(CATEGORIES)
 REGEX_PREFIX = "re:"
-REDOS_WARNING = ("Das Muster enthält verschachtelte Wiederholungen wie (a+)+ oder (\\w+\\s?)+. Solche Muster "
-                 "können bei manchen Texten extrem langsam werden und das Programm einfrieren. Besser die innere "
-                 "oder äußere Wiederholung entfernen oder einen festen Trenner einbauen.")
 
 
 class RuleEditor(ctk.CTkFrame):
@@ -50,7 +48,7 @@ class RuleEditor(ctk.CTkFrame):
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ctk.CTkButton(bottom, text="Alle Regeln speichern", command=self.save, width=220, height=36,
+        ctk.CTkButton(bottom, text=t("gui.rules.save_all"), command=self.save, width=220, height=36,
                       font=ctk.CTkFont(size=14, weight="bold")).pack(side="right")
         self._build_profile_bar(bottom)
         self.status = ctk.CTkLabel(bottom, text="", anchor="w")
@@ -64,21 +62,22 @@ class RuleEditor(ctk.CTkFrame):
     # ------------------------------------------------------------------
     def _build_rules(self, frame) -> None:
         frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(frame, text="Eigene Regeln (reguläre Ausdrücke)", font=ctk.CTkFont(size=15, weight="bold")
+        ctk.CTkLabel(frame, text=t("gui.rules.header"), font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(8, 4))
 
         style_treeview(frame)
         self.rule_tree = ttk.Treeview(frame, columns=("name", "category", "enabled"), show="headings", height=3,
                                       selectmode="browse")
-        for key, label, width in (("name", "Name", 220), ("category", "Kategorie", 120), ("enabled", "Aktiv", 60)):
+        for key, label, width in (("name", t("gui.rules.col_name"), 220), ("category", t("gui.rules.col_category"), 120),
+                                  ("enabled", t("gui.rules.col_active"), 60)):
             self.rule_tree.heading(key, text=label)
             self.rule_tree.column(key, width=width, anchor="w")
         self.rule_tree.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=8)
         self.rule_tree.bind("<<TreeviewSelect>>", self._rule_selected)
         btns = ctk.CTkFrame(frame, fg_color="transparent")
         btns.grid(row=1, column=2, sticky="n", padx=8)
-        ctk.CTkButton(btns, text="Neue Regel", width=110, command=self._new_rule).pack(pady=2)
-        ctk.CTkButton(btns, text="Löschen", width=110, fg_color="#a93226", hover_color="#922b21",
+        ctk.CTkButton(btns, text=t("gui.rules.new"), width=110, command=self._new_rule).pack(pady=2)
+        ctk.CTkButton(btns, text=t("gui.rules.delete"), width=110, fg_color="#a93226", hover_color="#922b21",
                       command=self._delete_rule).pack(pady=2)
 
         form = ctk.CTkFrame(frame, fg_color="transparent")
@@ -96,30 +95,28 @@ class RuleEditor(ctk.CTkFrame):
             ctk.CTkLabel(form, text=label, anchor="w").grid(row=r, column=0, sticky="w", pady=2, padx=(0, 6))
             widget.grid(row=r, column=1, sticky="ew", pady=2)
 
-        row(0, "Name", ctk.CTkEntry(form, textvariable=self.var_name))
-        row(1, "Beschreibung", ctk.CTkEntry(form, textvariable=self.var_desc,
-                                            placeholder_text="Wofür ist die Regel?"))
+        row(0, t("gui.rules.col_name"), ctk.CTkEntry(form, textvariable=self.var_name))
+        row(1, t("gui.rules.description"), ctk.CTkEntry(form, textvariable=self.var_desc,
+                                                        placeholder_text=t("gui.rules.description_placeholder")))
         pattern_entry = ctk.CTkEntry(form, textvariable=self.var_pattern, font=ctk.CTkFont(family="Consolas", size=13))
-        row(2, "Muster (Regex)", pattern_entry)
-        ctk.CTkLabel(form, text="Tipp: Mit (?P<value>...) wird nur dieser Teil ersetzt, z. B.  kunde=(?P<value>\\w+)",
-                     text_color="gray", anchor="w").grid(row=3, column=1, sticky="w")
-        row(4, "Kategorie", ctk.CTkOptionMenu(form, variable=self.var_category, values=CATEGORY_IDS))
+        row(2, t("gui.rules.pattern"), pattern_entry)
+        ctk.CTkLabel(form, text=t("gui.rules.tip"), text_color="gray", anchor="w").grid(row=3, column=1, sticky="w")
+        row(4, t("gui.rules.col_category"), ctk.CTkOptionMenu(form, variable=self.var_category, values=CATEGORY_IDS))
         conf_frame = ctk.CTkFrame(form, fg_color="transparent")
         self.conf_label = ctk.CTkLabel(conf_frame, text="0.90", width=40)
         ctk.CTkSlider(conf_frame, from_=0.05, to=1.0, number_of_steps=19, variable=self.var_conf,
                       command=lambda v: self.conf_label.configure(text=f"{float(v):.2f}")).pack(
             side="left", fill="x", expand=True)
         self.conf_label.pack(side="left", padx=6)
-        row(5, "Konfidenz", conf_frame)
+        row(5, t("gui.rules.confidence"), conf_frame)
         opts = ctk.CTkFrame(form, fg_color="transparent")
-        ctk.CTkCheckBox(opts, text="Groß-/Kleinschreibung ignorieren", variable=self.var_icase,
+        ctk.CTkCheckBox(opts, text=t("gui.rules.ignore_case"), variable=self.var_icase,
                         command=self._schedule_test).pack(side="left")
-        ctk.CTkCheckBox(opts, text="Aktiv", variable=self.var_enabled).pack(side="left", padx=12)
-        row(6, "Optionen", opts)
-        ctk.CTkButton(form, text="Regel übernehmen", command=self._apply_rule).grid(row=7, column=1, sticky="e", pady=4)
+        ctk.CTkCheckBox(opts, text=t("gui.rules.col_active"), variable=self.var_enabled).pack(side="left", padx=12)
+        row(6, t("gui.rules.options"), opts)
+        ctk.CTkButton(form, text=t("gui.rules.apply"), command=self._apply_rule).grid(row=7, column=1, sticky="e", pady=4)
 
-        ctk.CTkLabel(frame, text="Testfeld: Beispieltext eintippen, Treffer werden sofort markiert",
-                     anchor="w").grid(row=3, column=0, columnspan=3, sticky="w", padx=8)
+        ctk.CTkLabel(frame, text=t("gui.rules.test_hint"), anchor="w").grid(row=3, column=0, columnspan=3, sticky="w", padx=8)
         self.test_box = HighlightTextbox(frame, height=90, wrap="word")
         self.test_box.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=8, pady=(2, 4))
         self.test_result = ctk.CTkLabel(frame, text="", anchor="w")
@@ -143,12 +140,11 @@ class RuleEditor(ctk.CTkFrame):
         try:
             regex = re.compile(pattern, re.IGNORECASE if self.var_icase.get() else 0)
         except re.error as exc:
-            self.test_result.configure(text=f"Ungültiges Muster: {exc.msg} (Position {exc.pos})", text_color="#e74c3c")
+            self.test_result.configure(text=t("gui.rules.invalid_pattern", msg=exc.msg, pos=exc.pos), text_color="#e74c3c")
             return
         if redos_risk(pattern):
             # Nicht live testen: ein solches Muster könnte die Oberfläche einfrieren
-            self.test_result.configure(text="⚠ Möglicherweise sehr langsames Muster (verschachtelte Wiederholung) "
-                                            "– wird nicht live getestet.", text_color="#e74c3c")
+            self.test_result.configure(text=t("gui.rules.slow_live"), text_color="#e74c3c")
             return
         text = self.test_box.get_text()
         count = 0
@@ -159,13 +155,13 @@ class RuleEditor(ctk.CTkFrame):
                 count += 1
             if count >= 5000:
                 break
-        warn = "  ⚠ Muster passt auf leeren Text" if regex.match("") else ""
-        self.test_result.configure(text=f"{count} Treffer{warn}", text_color="#e67e22" if warn else ("gray10", "gray90"))
+        warn = t("gui.rules.matches_empty") if regex.match("") else ""
+        self.test_result.configure(text=t("gui.rules.hits", count=count) + warn, text_color="#e67e22" if warn else ("gray10", "gray90"))
 
     def _refresh_rule_list(self) -> None:
         self.rule_tree.delete(*self.rule_tree.get_children())
         for i, rule in enumerate(self.user_rules.rules):
-            self.rule_tree.insert("", "end", iid=str(i), values=(rule.name, rule.category, "ja" if rule.enabled else "nein"))
+            self.rule_tree.insert("", "end", iid=str(i), values=(rule.name, rule.category, t("gui.rules.yes") if rule.enabled else t("gui.rules.no")))
 
     def _rule_selected(self, _event=None) -> None:
         sel = self.rule_tree.selection()
@@ -195,12 +191,12 @@ class RuleEditor(ctk.CTkFrame):
         self.var_enabled.set(True)
 
     def _apply_rule(self) -> None:
-        name = self.var_name.get().strip() or "Eigene Regel"
+        name = self.var_name.get().strip() or t("gui.rules.default_name")
         existing_ids = {r.id for i, r in enumerate(self.user_rules.rules) if i != self._current}
         if self._current is not None:
             rule_id = self.user_rules.rules[self._current].id
         else:
-            base = "user_" + (re.sub(r"\W+", "_", name.lower()).strip("_") or "regel")
+            base = "user_" + (re.sub(r"\W+", "_", name.lower()).strip("_") or "regel")   # ID bleibt sprachunabhängig
             rule_id, n = base, 2
             while rule_id in existing_ids:
                 rule_id, n = f"{base}_{n}", n + 1
@@ -212,10 +208,10 @@ class RuleEditor(ctk.CTkFrame):
                 "flags": ["IGNORECASE"] if self.var_icase.get() else [], "enabled": self.var_enabled.get(),
             })
         except RuleError as exc:
-            dialogs.show_error("Regel ungültig", str(exc), parent=self)
+            dialogs.show_error(t("gui.rules.invalid_title"), str(exc), parent=self)
             return
         if redos_risk(rule.pattern) and not dialogs.ask_yes_no(
-                "Langsames Muster", REDOS_WARNING + "\n\nTrotzdem übernehmen?", parent=self):
+                t("gui.rules.slow_title"), t("gui.rules.redos") + "\n\n" + t("gui.rules.apply_anyway"), parent=self):
             return
         if self._current is None:
             self.user_rules.rules.append(rule)
@@ -224,13 +220,13 @@ class RuleEditor(ctk.CTkFrame):
             self.user_rules.rules[self._current] = rule
         self._refresh_rule_list()
         self.rule_tree.selection_set(str(self._current))
-        self.status.configure(text="Regel übernommen – zum Aktivieren 'Alle Regeln speichern' klicken.")
+        self.status.configure(text=t("gui.rules.applied", button=t("gui.rules.save_all")))
 
     def _delete_rule(self) -> None:
         if self._current is None:
             return
         rule = self.user_rules.rules[self._current]
-        if not dialogs.ask_yes_no("Regel löschen", f"Regel '{rule.name}' löschen?", parent=self):
+        if not dialogs.ask_yes_no(t("gui.rules.delete_title"), t("gui.rules.delete_ask", name=rule.name), parent=self):
             return
         del self.user_rules.rules[self._current]
         self._current = None
@@ -242,27 +238,24 @@ class RuleEditor(ctk.CTkFrame):
     # ------------------------------------------------------------------
     def _build_lists(self, frame) -> None:
         frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(frame, text="Eigene Wortlisten", font=ctk.CTkFont(size=15, weight="bold")
+        ctk.CTkLabel(frame, text=t("gui.rules.wordlists_title"), font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
-        ctk.CTkLabel(frame, text="Ein Eintrag pro Zeile: Firmennamen, interne Hosts, Benutzer, Projekte, Personen …",
-                     text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=1, column=0, sticky="w", padx=8)
+        ctk.CTkLabel(frame, text=t("gui.rules.wordlists_hint"), text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=1, column=0, sticky="w", padx=8)
         top = ctk.CTkFrame(frame, fg_color="transparent")
         top.grid(row=2, column=0, sticky="ew", padx=8, pady=4)
         self.var_wl_category = tk.StringVar(value="COMPANY")
         self.var_wl_icase = tk.BooleanVar(value=True)
-        ctk.CTkLabel(top, text="Kategorie").pack(side="left")
+        ctk.CTkLabel(top, text=t("gui.rules.col_category")).pack(side="left")
         ctk.CTkOptionMenu(top, variable=self.var_wl_category, values=CATEGORY_IDS, width=150,
                           command=self._wl_category_changed).pack(side="left", padx=6)
-        ctk.CTkCheckBox(top, text="Groß/klein ignorieren", variable=self.var_wl_icase).pack(side="left", padx=6)
+        ctk.CTkCheckBox(top, text=t("gui.rules.ignore_case_short"), variable=self.var_wl_icase).pack(side="left", padx=6)
         self.wl_box = ctk.CTkTextbox(frame, height=150, font=ctk.CTkFont(family="Consolas", size=12))
         self.wl_box.grid(row=3, column=0, sticky="nsew", padx=8)
         self.wl_box.bind("<FocusOut>", lambda _e: self._store_wordlist())
 
-        ctk.CTkLabel(frame, text="Allowlist (wird nie ersetzt)", font=ctk.CTkFont(size=15, weight="bold")
+        ctk.CTkLabel(frame, text=t("gui.rules.allow_title"), font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=4, column=0, sticky="w", padx=8, pady=(12, 0))
-        ctk.CTkLabel(frame, text=f"Ein Eintrag pro Zeile, exakt (ohne Groß/klein). Mit '{REGEX_PREFIX}' am Anfang als "
-                                 "regulärer Ausdruck, z. B.  re:10\\.0\\.0\\.\\d+",
-                     text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=5, column=0, sticky="w", padx=8)
+        ctk.CTkLabel(frame, text=t("gui.rules.allow_hint", prefix=REGEX_PREFIX), text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=5, column=0, sticky="w", padx=8)
         self.allow_box = ctk.CTkTextbox(frame, height=120, font=ctk.CTkFont(family="Consolas", size=12))
         self.allow_box.grid(row=6, column=0, sticky="nsew", padx=8, pady=(2, 8))
         frame.grid_rowconfigure(3, weight=1)
@@ -299,8 +292,8 @@ class RuleEditor(ctk.CTkFrame):
             return
         if wl is None:
             label = CATEGORIES[category].label if category in CATEGORIES else category
-            wl = Wordlist(id=f"user_{category.lower()}", name=f"Eigene Liste: {label}", category=category,
-                          description="In der GUI gepflegte Wortliste.")
+            wl = Wordlist(id=f"user_{category.lower()}", name=t("gui.rules.wordlist_name", label=label), category=category,
+                          description=t("gui.rules.wordlist_desc"))
             self.user_rules.wordlists.append(wl)
         wl.words = words
         wl.ignore_case = self.var_wl_icase.get()
@@ -320,15 +313,16 @@ class RuleEditor(ctk.CTkFrame):
                 try:
                     re.compile(value)
                 except re.error as exc:
-                    dialogs.show_error("Allowlist", f"Ungültiger regulärer Ausdruck in der Allowlist ({exc.msg}).",
+                    dialogs.show_error(t("gui.rules.allow_dialog"), t("gui.rules.allow_bad_regex", msg=exc.msg),
                                          parent=self)
                     return False
                 if redos_risk(value) and not dialogs.ask_yes_no(
-                        "Allowlist", REDOS_WARNING + "\n\nTrotzdem speichern?", parent=self):
+                        t("gui.rules.allow_dialog"), t("gui.rules.redos") + "\n\n" + t("gui.rules.save_anyway"),
+                        parent=self):
                     return False
-                entries.append(AllowEntry(value=value, regex=True, description="In der GUI gepflegt."))
+                entries.append(AllowEntry(value=value, regex=True, description=t("gui.rules.allow_desc")))
             else:
-                entries.append(AllowEntry(value=line, description="In der GUI gepflegt."))
+                entries.append(AllowEntry(value=line, description=t("gui.rules.allow_desc")))
         self.user_rules.allowlist = entries
         return True
 
@@ -336,11 +330,13 @@ class RuleEditor(ctk.CTkFrame):
     # Profile
     # ------------------------------------------------------------------
     def _build_profile_bar(self, bar) -> None:
-        buttons = [("Laden", self.load_selected_profile), ("Speichern als …", self.save_profile_as),
-                   ("Importieren …", self.import_profile_file), ("Exportieren …", self.export_profile)]
+        buttons = [(t("gui.rules.profile_load"), self.load_selected_profile),
+                   (t("gui.rules.profile_save_as"), self.save_profile_as),
+                   (t("gui.rules.profile_import"), self.import_profile_file),
+                   (t("gui.rules.profile_export"), self.export_profile)]
         frame = ctk.CTkFrame(bar, fg_color="transparent")
         frame.pack(side="right", padx=(0, 12))
-        ctk.CTkLabel(bar, text="Profil:", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=(12, 4))
+        ctk.CTkLabel(bar, text=t("gui.rules.profile_label"), font=ctk.CTkFont(weight="bold")).pack(side="right", padx=(12, 4))
         self.var_profile = tk.StringVar(value="")
         self.profile_box = ctk.CTkComboBox(frame, variable=self.var_profile, values=profiles.list_profiles() or [""],
                                            width=170, state="readonly")
@@ -363,47 +359,47 @@ class RuleEditor(ctk.CTkFrame):
     def save_profile_as(self) -> None:
         if not self._collect():
             return
-        name = ctk.CTkInputDialog(text="Name des Profils (z. B. \"Kunde A\"):", title="Profil speichern").get_input()
+        name = ctk.CTkInputDialog(text=t("gui.rules.profile_prompt"), title=t("gui.rules.profile_save_title")).get_input()
         if not name:
             return
         name = name.strip()
         if not profiles.valid_profile_name(name):
-            dialogs.show_error("Profil", "Ungültiger Name. Erlaubt sind Buchstaben, Ziffern, Leerzeichen und "
-                                           "- _ . (max. 60 Zeichen).", parent=self)
+            dialogs.show_error(t("gui.rules.profile_title"), t("gui.rules.profile_bad_name"), parent=self)
             return
         if name in profiles.list_profiles() and not dialogs.ask_yes_no(
-                "Profil", f"Profil \"{name}\" überschreiben?", parent=self):
+                t("gui.rules.profile_title"), t("gui.rules.profile_overwrite", name=name), parent=self):
             return
         settings = self.get_settings() if self.get_settings else None
         try:
             profiles.save_named_profile(name, self.user_rules, settings)
         except (OSError, profiles.ProfileError) as exc:
-            dialogs.show_error("Profil", f"Speichern fehlgeschlagen ({type(exc).__name__}).", parent=self)
+            dialogs.show_error(t("gui.rules.profile_title"), t("gui.save.failed", reason=type(exc).__name__), parent=self)
             return
         self._refresh_profiles(select=name)
-        self.status.configure(text=f"Profil gespeichert: {name}")
+        self.status.configure(text=t("gui.rules.profile_saved", name=name))
 
     def load_selected_profile(self) -> None:
         name = self.var_profile.get().strip()
         if not name:
-            dialogs.show_info("Profil", "Noch kein Profil gespeichert oder ausgewählt.", parent=self)
+            dialogs.show_info(t("gui.rules.profile_title"), t("gui.rules.profile_none"), parent=self)
             return
         try:
             profile = profiles.load_named_profile(name)
         except profiles.ProfileError as exc:
-            dialogs.show_error("Profil", str(exc), parent=self)
+            dialogs.show_error(t("gui.rules.profile_title"), str(exc), parent=self)
             return
         self._import(profile)
 
     def import_profile_file(self) -> None:
-        path = filedialog.askopenfilename(title="Profil importieren", parent=self,
-                                          filetypes=[("Profil (JSON)", "*.json"), ("Alle Dateien", "*.*")])
+        path = filedialog.askopenfilename(title=t("gui.rules.profile_import_title"), parent=self,
+                                          filetypes=[(t("gui.rules.profile_filetype"), "*.json"),
+                                                     (t("gui.rules.all_files"), "*.*")])
         if not path:
             return
         try:
             profile = profiles.load_profile(path)
         except profiles.ProfileError as exc:
-            dialogs.show_error("Profil importieren", str(exc), parent=self)
+            dialogs.show_error(t("gui.rules.profile_import_title"), str(exc), parent=self)
             return
         self._import(profile)
 
@@ -412,21 +408,22 @@ class RuleEditor(ctk.CTkFrame):
         if not self._collect():
             return False
         info = profiles.summarize(self.user_rules, profile.rules)
-        lines = [f"Profil \"{profile.name}\":",
-                 f"  {info['new_rules']} neue und {info['changed_rules']} geänderte Regeln",
-                 f"  {info['new_words']} neue Wörter in Wortlisten",
-                 f"  {info['new_allow']} neue Allowlist-Einträge"]
+        lines = [t("gui.rules.summary_head", name=profile.name),
+                 t("gui.rules.summary_rules", new=info['new_rules'], changed=info['changed_rules']),
+                 t("gui.rules.summary_words", n=info['new_words']),
+                 t("gui.rules.summary_allow", n=info['new_allow'])]
         if profile.settings:
-            lines.append("  setzt außerdem " + " und ".join(
-                {"mode": "den Modus", "enabled_categories": "die Kategorien"}[k] for k in profile.settings))
+            lines.append(t("gui.rules.summary_sets", what=t("gui.rules.summary_and").join(
+                t({"mode": "gui.rules.summary_mode", "enabled_categories": "gui.rules.summary_categories"}[k])
+                for k in profile.settings)))
         if profile.warnings:
-            lines += ["", "Hinweise:"] + [f"  - {w}" for w in profile.warnings[:8]]
+            lines += ["", t("gui.rules.summary_notes")] + [f"  - {w}" for w in profile.warnings[:8]]
             if len(profile.warnings) > 8:
-                lines.append(f"  … und {len(profile.warnings) - 8} weitere")
+                lines.append(t("gui.rules.summary_more", n=len(profile.warnings) - 8))
         if merge is None:
             answer = dialogs.ask_yes_no_cancel(
-                "Profil übernehmen", "\n".join(lines) + "\n\nJa = mit den aktuellen Regeln zusammenführen\n"
-                                                        "Nein = aktuelle eigene Regeln ersetzen", parent=self)
+                t("gui.rules.apply_profile_title"), "\n".join(lines) + "\n\n" + t("gui.rules.apply_profile_ask"),
+                parent=self)
             if answer is None:
                 return False
             merge = answer
@@ -438,33 +435,31 @@ class RuleEditor(ctk.CTkFrame):
             self.apply_settings(profile.settings)
         ok = self.save()
         if ok:
-            self.status.configure(text=f"Profil \"{profile.name}\" übernommen "
-                                       f"({'zusammengeführt' if merge else 'ersetzt'}).")
+            self.status.configure(text=t("gui.rules.profile_applied", name=profile.name,
+                                         how=t("gui.rules.merged" if merge else "gui.rules.replaced")))
         return ok
 
     def export_profile(self) -> None:
         if not self._collect():
             return
-        path = filedialog.asksaveasfilename(title="Profil exportieren", parent=self, defaultextension=".json",
-                                            initialfile="profil.json", filetypes=[("Profil (JSON)", "*.json")])
+        path = filedialog.asksaveasfilename(title=t("gui.rules.export_title"), parent=self, defaultextension=".json",
+                                            initialfile=t("gui.rules.export_file"),
+                                            filetypes=[(t("gui.rules.profile_filetype"), "*.json")])
         if not path:
             return
         with_words = False
         if any(w.words for w in self.user_rules.wordlists):
             with_words = dialogs.ask_yes_no(
-                "Wortlisten mitexportieren?",
-                "Die Wortlisten enthalten Firmen-, Host- und Personennamen im Klartext.\n\n"
-                "Nur mitexportieren, wenn die Datei in vertrauenswürdigen Händen bleibt.\n\nMitexportieren?",
-                default="no", parent=self)
+                t("gui.rules.export_words_title"), t("gui.rules.export_words_ask"), default="no", parent=self)
         settings = self.get_settings() if self.get_settings else None
         try:
             profiles.export_profile(path, self.user_rules, Path(path).stem, settings, with_words)
         except OSError as exc:
-            dialogs.show_error("Profil exportieren", f"Speichern fehlgeschlagen ({type(exc).__name__}).",
+            dialogs.show_error(t("gui.rules.export_title"), t("gui.save.failed", reason=type(exc).__name__),
                                  parent=self)
             return
-        self.status.configure(text=f"Profil exportiert{' (mit Wortlisten)' if with_words else ' (ohne Wortlisten)'}: "
-                                   f"{path}")
+        self.status.configure(text=t("gui.rules.exported_with" if with_words else "gui.rules.exported_without",
+                                     path=path))
 
     def add_allow_entry(self, value: str) -> bool:
         """Übernimmt einen Wert (exakt) in die Allowlist und speichert alle Regeln.
@@ -488,9 +483,9 @@ class RuleEditor(ctk.CTkFrame):
         try:
             path = self.on_save(self.user_rules)
         except OSError as exc:
-            dialogs.show_error("Speichern fehlgeschlagen", f"Regeln konnten nicht gespeichert werden "
-                                                              f"({type(exc).__name__}).", parent=self)
+            dialogs.show_error(t("gui.rules.save_failed_title"),
+                               t("gui.rules.save_failed", name=type(exc).__name__), parent=self)
             return False
-        self.status.configure(text=f"Gespeichert: {path}")
+        self.status.configure(text=t("gui.rules.saved", path=path))
         return True
 

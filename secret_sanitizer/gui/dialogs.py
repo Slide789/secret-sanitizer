@@ -19,6 +19,22 @@ _WRAP = 420
 
 
 class _Dialog(ctk.CTkToplevel):
+    # CTkToplevel plant selbst after-Aufträge (Titelleisten-Symbol nach 200 ms, Mindestgröße
+    # nach 1000 ms ...). Schließt der Dialog früher, meldet Tk "invalid command name".
+    # Darum merken wir uns alle Aufträge und brechen sie beim Zerstören ab.
+    def after(self, ms, func=None, *args):
+        job = super().after(ms, func, *args)
+        self.__dict__.setdefault("_after_jobs", []).append(job)
+        return job
+
+    def destroy(self) -> None:
+        for job in self.__dict__.get("_after_jobs", []):
+            try:
+                self.after_cancel(job)
+            except (tk.TclError, ValueError):
+                pass
+        super().destroy()
+
     def __init__(self, parent, title: str, message: str, kind: str, buttons: list[tuple[str, object]],
                  default_index: int, escape_value: object, auto: str | None, auto_map: dict[str, object]) -> None:
         super().__init__(parent)

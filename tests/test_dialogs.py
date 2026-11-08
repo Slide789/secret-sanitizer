@@ -14,12 +14,23 @@ except Exception:   # pragma: no cover
     ctk = None
 
 
+def _quiet_destroy(root) -> None:
+    """Zerstört das Fenster und bricht vorher dessen offene after-Aufträge ab
+    (CTk plant welche nach 200 ms). Sonst meldet Tk später "invalid command name"."""
+    try:
+        for job in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(job)
+    except Exception:
+        pass
+    root.destroy()
+
+
 def _display_available() -> bool:
     if ctk is None:
         return False
     try:
         root = ctk.CTk()
-        root.destroy()
+        _quiet_destroy(root)
         return True
     except Exception:
         return False
@@ -46,7 +57,7 @@ class DialogTests(unittest.TestCase):
         self.root = ctk.CTk()
         self.root.geometry("400x300")
         self.root.update()
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(_quiet_destroy, self.root)
         self.addCleanup(i18n.set_language, "de")
 
     def test_yes_no_returns_true_false(self):

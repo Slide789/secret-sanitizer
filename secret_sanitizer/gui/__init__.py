@@ -1,8 +1,11 @@
 """GUI (customtkinter). Wird nur geladen, wenn die GUI gestartet wird, damit
 Kern und CLI ohne Zusatzpakete laufen."""
 
+from __future__ import annotations
 
-def launch() -> int:
+
+def launch(lang: str | None = None) -> int:
+    """lang: bereits gewählte Sprache (z. B. aus --lang); ohne Angabe wählt die GUI selbst."""
     try:
         import customtkinter  # noqa: F401
     except ImportError:
@@ -13,4 +16,4 @@ def launch() -> int:
         return 2
     from .app import run
 
-    return run()
+    return run(lang)

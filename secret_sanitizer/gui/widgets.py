@@ -9,6 +9,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from ..core.models import CATEGORIES, GROUPS, PERSONAL_CATEGORIES, group_label
+from ..i18n import t
 
 MONO_FONT = ("Consolas", 12)
 ROWS_PER_GROUP = 5
@@ -141,9 +142,9 @@ class FindingTable(ctk.CTkFrame):
     gekürzt angezeigt (z. B. 'hun… (7 Zeichen)'), damit er bei geteiltem
     Bildschirm nicht komplett sichtbar ist."""
 
-    COLUMNS = (("placeholder", "Platzhalter", 150), ("category", "Kategorie", 140), ("preview", "Wert (gekürzt)", 190),
-               ("count", "Anzahl", 70), ("detector", "Erkannt durch", 150), ("confidence", "Konfidenz", 90),
-               ("status", "Status", 130))
+    # (Spalten-ID, Breite); die Überschriften kommen als gui.table.<ID> aus dem Sprachkatalog
+    COLUMNS = (("placeholder", 150), ("category", 140), ("preview", 190), ("count", 70), ("detector", 150),
+               ("confidence", 90), ("status", 130))
 
     def __init__(self, master, on_select, on_toggle, **kwargs) -> None:
         super().__init__(master, **kwargs)
@@ -152,8 +153,8 @@ class FindingTable(ctk.CTkFrame):
         style_treeview(self)
         self.tree = ttk.Treeview(self, columns=[c[0] for c in self.COLUMNS], show="headings", height=6,
                                  selectmode="browse")
-        for key, label, width in self.COLUMNS:
-            self.tree.heading(key, text=label)
+        for key, width in self.COLUMNS:
+            self.tree.heading(key, text=t(f"gui.table.{key}"))
             self.tree.column(key, width=width, anchor="w", stretch=key in ("preview", "detector"))
         for cat in CATEGORIES.values():
             self.tree.tag_configure(cat.id, foreground=cat.color)
@@ -173,8 +174,8 @@ class FindingTable(ctk.CTkFrame):
     def preview(value: str) -> str:
         flat = value.replace("\n", " ")
         if len(flat) <= 4:
-            return "…" + f" ({len(value)} Zeichen)"
-        return flat[:3] + f"… ({len(value)} Zeichen)"
+            return "… " + t("gui.table.chars", n=len(value))
+        return flat[:3] + "… " + t("gui.table.chars", n=len(value))
 
     def set_rows(self, rows) -> None:
         """rows: Liste von Dicts mit key, placeholder, category, value, count, detectors, confidence, excluded."""
@@ -184,7 +185,7 @@ class FindingTable(ctk.CTkFrame):
             iid = f"r{i}"
             self._keys[iid] = row["key"]
             cat = CATEGORIES.get(row["category"])
-            status = "nicht ersetzt" if row["excluded"] else "wird ersetzt"
+            status = t("gui.table.excluded") if row["excluded"] else t("gui.table.replaced")
             self.tree.insert("", "end", iid=iid, tags=("excluded",) if row["excluded"] else (row["category"],), values=(
                 row["placeholder"] if not row["excluded"] else "—", cat.label if cat else row["category"],
                 self.preview(row["value"]), row["count"], ", ".join(sorted(row["detectors"])),

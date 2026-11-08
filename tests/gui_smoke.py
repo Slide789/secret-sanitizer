@@ -1,7 +1,7 @@
 """GUI-Smoke-Test (manuell bzw. unter Xvfb): startet das Fenster, bedient die
 wichtigsten Funktionen automatisch und beendet sich wieder.
 
-    python tests/gui_smoke.py [screenshot-ordner]
+    python tests/gui_smoke.py [--lang de|en] [screenshot-ordner]
 
 Benötigt customtkinter und ein Display. Verwendet nur Fake-Daten.
 """
@@ -22,8 +22,14 @@ if __name__ == "__main__":   # nicht in Worker-Prozessen, die dieses Skript erne
     shutil.rmtree(TMP, ignore_errors=True)
     TMP.mkdir(parents=True)
 
-# Deutsche Texte auf jedem System (vor dem Import von i18n)
-os.environ["SECRET_SANITIZER_LANG"] = "de"
+# Sprache des Laufs (Standard Deutsch), auf jedem System gleich (vor dem Import von i18n)
+LANG = "de"
+_args = sys.argv[1:]
+if "--lang" in _args:
+    LANG = _args[_args.index("--lang") + 1]
+    del _args[_args.index("--lang"):_args.index("--lang") + 2]
+assert LANG in ("de", "en"), "--lang muss de oder en sein"
+os.environ["SECRET_SANITIZER_LANG"] = LANG
 
 from secret_sanitizer import config  # noqa: E402
 
@@ -31,7 +37,7 @@ os.environ[config.HOME_ENV_VAR] = str(TMP / "config_home")
 
 from tests.fake_data import FAKE_DIR, SECRETS, generate  # noqa: E402
 
-SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+SHOTS = Path(_args[0]) if _args else None
 
 
 def screenshot(app, name: str) -> None:
@@ -51,11 +57,44 @@ def pump(app, seconds: float) -> None:
         time.sleep(0.02)
 
 
+def _walk(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _walk(child)
+
+
+def check_text_fits(app, errors: list[str], where: str) -> None:
+    """Beschriftungen von Buttons und Treeview-Spalten dürfen nicht abgeschnitten sein
+    (Englisch und Deutsch sind unterschiedlich lang)."""
+    import customtkinter as ctk
+    from tkinter import ttk
+    import tkinter.font as tkfont
+    app.update()
+    for w in _walk(app):
+        if not w.winfo_ismapped():
+            continue
+        if isinstance(w, ctk.CTkButton) and w.cget("text") and not isinstance(w.master, ctk.CTkSegmentedButton):
+            font = w.cget("font")
+            need = font.measure(w.cget("text")) + 10
+            if need > w.winfo_width():
+                errors.append(f"{where}: Button '{w.cget('text')}' braucht {need}px, hat {w.winfo_width()}px")
+        elif isinstance(w, ttk.Treeview):
+            font = tkfont.nametofont("TkHeadingFont")
+            for col in w["columns"]:
+                text = w.heading(col, "text")
+                need = font.measure(text) + 16
+                if need > w.column(col, "width"):
+                    errors.append(f"{where}: Spalte '{text}' braucht {need}px, hat {w.column(col, 'width')}px")
+
+
 def main() -> int:
+    from secret_sanitizer.config import mode_label
     from secret_sanitizer.gui.app import App
+    from secret_sanitizer.i18n import current_language, t
 
     errors: list[str] = []
     app = App()
+    assert current_language() == LANG, (current_language(), LANG)
     app.report_callback_exception = lambda *exc: errors.append(repr(exc[1]))
     pump(app, 1.0)
 
@@ -85,13 +124,13 @@ def main() -> int:
     screenshot(app, "2_ausnahme")
 
     # 3) Modus und Kategorie umschalten
-    app._mode_changed("Locker")
+    app._mode_changed(mode_label("loose"))
     pump(app, 0.5)
     app.categories.vars["EMAIL"].set(False)
     app.categories._changed()
     pump(app, 0.5)
     assert SECRETS["email"] in app.clean_box.get_text(), "E-Mail-Schalter wirkt nicht"
-    app._mode_changed("Streng")
+    app._mode_changed(mode_label("strict"))
     app.categories.vars["EMAIL"].set(True)
     app.categories._changed()
     pump(app, 0.5)
@@ -99,7 +138,7 @@ def main() -> int:
     # 4) Ordnerlauf
     src = TMP / "daten"
     generate(src)
-    app.tabs.set("Dateien & Ordner")
+    app.tabs.set(app.TAB_FILES)
     app.input_var.set(str(src))
     app.start_run()
     for _ in range(300):
@@ -108,19 +147,19 @@ def main() -> int:
             break
     pump(app, 0.5)
     report = app.report_box.get_text()
-    assert "Bearbeitet: 15" in report, report[:400]
+    assert t("report.counts").split("{processed}")[0] + "15" in report, report[:400]
     assert (TMP / "daten_sanitized" / "linux" / "auth.log").exists()
     screenshot(app, "3_ordner")
 
     # 5) Regel-Editor mit Testfeld, Wortliste, Allowlist, speichern
-    app.tabs.set("Regeln")
+    app.tabs.set(app.TAB_RULES)
     ed = app.rule_editor
     ed.var_name.set("Ticketnummer")
     ed.var_desc.set("Interne Ticketnummern")
     ed.var_pattern.set(r"TICKET-\d{4,}")
     ed.test_box.set_text("Siehe TICKET-12345 und ticket-9999 sowie TICKET-12")
     pump(app, 0.6)
-    assert ed.test_result.cget("text").startswith("2 Treffer"), ed.test_result.cget("text")
+    assert ed.test_result.cget("text").startswith(t("gui.rules.hits", count=2)), ed.test_result.cget("text")
     ed._apply_rule()
     ed.wl_box.insert("1.0", "Fakefirma GmbH\nProjekt Phoenix")
     ed.allow_box.insert("1.0", "203.0.113.77")
@@ -128,7 +167,7 @@ def main() -> int:
     pump(app, 0.5)
     assert config.user_rules_path().exists()
     screenshot(app, "4_regeln")
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
     app._set_original("TICKET-4711 bei Fakefirma GmbH von 203.0.113.77", None)
     pump(app, 1.0)
     assert app.clean_box.get_text() == "[CUSTOM_1] bei [COMPANY_1] von 203.0.113.77", app.clean_box.get_text()
@@ -136,13 +175,13 @@ def main() -> int:
     # 5b) Antwort zurückübersetzen (Text-Sitzung und letzter Ordnerlauf)
     app._set_original("Server 10.20.30.40 password=Geheim99x", None)
     pump(app, 1.0)
-    app.tabs.set("Antwort zurückübersetzen")
+    app.tabs.set(app.TAB_RESTORE)
     app.restore_in.set_text("Prüfe [IP_1] mit [PASSWORD_1] und [IP_7]")
     app.run_restore()
     pump(app, 0.3)
     restored = app.restore_out.get_text()
     assert restored == "Prüfe 10.20.30.40 mit Geheim99x und [IP_7]", restored
-    assert "unbekannt" in app.restore_info.cget("text"), app.restore_info.cget("text")
+    assert t("gui.restore.unknown", names="[IP_7]") in app.restore_info.cget("text"), app.restore_info.cget("text")
     screenshot(app, "4b_rueckuebersetzung")
     app.restore_source.set(app.RESTORE_SOURCES[1])
     app.restore_in.set_text("[USERNAME_1]")
@@ -153,7 +192,7 @@ def main() -> int:
     # 5c) "Immer ignorieren" übernimmt den Wert in die Allowlist
     from secret_sanitizer.gui import app as app_module
     app_module.dialogs.ask_yes_no = lambda *a, **k: True
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
     ip_row = next(r for r in app.table.tree.get_children() if app.table._keys[r].startswith("[IP_"))
     app.table.tree.selection_set(ip_row)
     pump(app, 0.3)
@@ -182,13 +221,13 @@ def main() -> int:
         "settings": {"mode": "loose"}}), encoding="utf-8")
     assert ed._import(profiles.load_profile(import_path), merge=True)
     pump(app, 1.0)
-    assert app.settings.mode == "loose" and app.mode_var.get() == "Locker"
+    assert app.settings.mode == "loose" and app.mode_var.get() == mode_label("loose")
     assert {"kunde", "user_ticketnummer"} <= {r.id for r in ed.user_rules.rules}, [r.id for r in ed.user_rules.rules]
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
     app._set_original("Kunde KD-123456", None)
     pump(app, 1.0)
     assert app.clean_box.get_text() == "Kunde [CUSTOM_1]", app.clean_box.get_text()
-    app._mode_changed("Streng")
+    app._mode_changed(mode_label("strict"))
     pump(app, 0.3)
 
     # 5e) Drag & Drop (Ereignis wie von tkdnd: Tcl-Liste, Pfade mit Leerzeichen in {})
@@ -201,32 +240,62 @@ def main() -> int:
 
     dropped = TMP / "mit leerzeichen.log"
     dropped.write_text(f"password={SECRETS['db_password']}\n", encoding="utf-8")
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
     app._on_drop(Drop(dropped))
     pump(app, 1.0)
     assert app.original_box.get_text().startswith("password="), app.original_box.get_text()[:80]
     assert SECRETS["db_password"] not in app.clean_box.get_text()
     app._on_drop(Drop(src))
     pump(app, 0.2)
-    assert app.tabs.get() == "Dateien & Ordner" and app.input_var.get() == str(src)
+    assert app.tabs.get() == app.TAB_FILES and app.input_var.get() == str(src)
     shown = []
     app_module.dialogs.show_info = lambda *a, **k: shown.append(a)
     app._on_drop(Drop(dropped, src))
     assert shown and app.input_var.get() == str(src), "mehrere Elemente sollten abgelehnt werden"
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
 
     # 6) Einstellungen speichern
-    app.tabs.set("Einstellungen")
+    app.tabs.set(app.TAB_SETTINGS)
     app.setting_vars["max_preview_chars"].set("50")
     app.save_settings_form()
     pump(app, 0.3)
     screenshot(app, "5_einstellungen")
-    app.tabs.set("Text & Vorschau")
+    app.tabs.set(app.TAB_TEXT)
     app._set_original(sample, None)
     pump(app, 1.0)
-    assert "Stichproben" in app.clean_box.get_text()
+    assert t("gui.text.large_samples") in app.clean_box.get_text()
     assert SECRETS["db_password"] not in app.result.text
     screenshot(app, "6_gross")
+
+    # 6b) Sprachauswahl: Speichern mit anderer Sprache fragt nach Neustart (Neustart selbst nur simuliert)
+    app.tabs.set(app.TAB_SETTINGS)
+    other = "en" if LANG == "de" else "de"
+    asked, restarted = [], []
+    app_module.dialogs.ask_yes_no = lambda title, message, *a, **k: asked.append((title, message)) or True
+    app_module.restart_app = lambda app=None: restarted.append(True)
+    app.language_var.set(app._language_labels[other])
+    app.save_settings_form()
+    pump(app, 0.3)
+    assert app.settings.language == other and restarted, (app.settings.language, restarted)
+    assert asked and asked[-1][0] == t("gui.restart.title"), asked
+    assert t("gui.restart.message") == asked[-1][1]
+    asked.clear()
+    app.language_var.set(app._language_labels["auto"])
+    app.save_settings_form()
+    assert app.settings.language == "auto"
+    app.language_var.set(app._language_labels[LANG])
+    app.save_settings_form()      # zurück auf die Laufsprache; fragt erneut, Neustart simuliert
+    pump(app, 0.3)
+    app.settings.language = "auto"
+    app.tabs.set(app.TAB_TEXT)
+
+    # 6c) Texte passen in ihre Felder (jeder Reiter einmal sichtbar)
+    for tab in (app.TAB_TEXT, app.TAB_FILES, app.TAB_RESTORE, app.TAB_RULES, app.TAB_SETTINGS):
+        app.tabs.set(tab)
+        pump(app, 0.3)
+        check_text_fits(app, errors, tab)
+        screenshot(app, f"tab_{LANG}_{tab[:4]}")
+    app.tabs.set(app.TAB_TEXT)
 
     # 7) Große Texte: Vorschau im Hintergrund, Fenster bleibt bedienbar
     from secret_sanitizer.gui.app import ASYNC_PREVIEW_CHARS

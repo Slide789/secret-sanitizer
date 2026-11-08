@@ -63,6 +63,32 @@ class CatalogTests(unittest.TestCase):
                 self.assertIn(key, en, f"{path.name}: {key} fehlt in en")
 
 
+class GuiLiteralTests(unittest.TestCase):
+    """Grober Scan: in gui/*.py darf kein deutscher Text mehr als Literal stehen."""
+
+    GERMAN = re.compile(r"[äöüÄÖÜß]|(und|oder|Datei|Dateien|Ordner|Einstellungen|Regel|Regeln|Bitte|Fehler|"
+                        r"Speichern|Treffer|Zwischenablage|Ausgabe|Eingabe|wird|nicht|werden|Löschen)")
+    ALLOWED: set[str] = set()   # ausdrücklich erlaubte Literale
+
+    def test_no_german_literals_in_gui(self):
+        import ast
+        found = []
+        for path in sorted((ROOT / "secret_sanitizer" / "gui").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    body = node.body
+                    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                        docstrings.add(id(body[0].value))
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                        and id(node) not in docstrings and node.value not in self.ALLOWED
+                        and self.GERMAN.search(node.value)):
+                    found.append(f"{path.name}:{node.lineno}: {node.value[:60]!r}")
+        self.assertEqual(found, [], "\n" + "\n".join(found))
+
+
 class DomainTextTests(unittest.TestCase):
     def setUp(self):
         self._old = i18n.current_language()
@@ -172,6 +198,45 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(Settings.from_dict({"language": v}).language, "auto", v)
         self.assertEqual(Settings.from_dict({}).language, "auto")
         self.assertEqual(Settings.from_dict({"language": "en"}).language, "en")
+
+
+try:
+    import customtkinter  # noqa: F401
+    HAVE_CTK = True
+except Exception:   # pragma: no cover
+    HAVE_CTK = False
+
+
+@unittest.skipUnless(HAVE_CTK, "customtkinter fehlt")
+class RestartTests(unittest.TestCase):
+    def test_without_lang_args(self):
+        from secret_sanitizer.gui.app import _without_lang_args
+        self.assertEqual(_without_lang_args(["--gui", "--lang", "en", "--config", "x"]), ["--gui", "--config", "x"])
+        self.assertEqual(_without_lang_args(["--lang=de", "--gui"]), ["--gui"])
+        self.assertEqual(_without_lang_args([]), [])
+
+    def test_restart_command_and_env(self):
+        import sys
+        from secret_sanitizer.gui import app as app_module
+        env = dict(os.environ, **{i18n.LANG_ENV_VAR: "de"})
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(app_module.subprocess, "Popen") as popen:
+            app_module.restart_app()
+            cmd = popen.call_args.args[0]
+            self.assertEqual(cmd, [sys.executable, "-m", "secret_sanitizer", "--gui"])
+            self.assertNotIn(i18n.LANG_ENV_VAR, popen.call_args.kwargs["env"])
+            self.assertNotIn("PYINSTALLER_RESET_ENVIRONMENT", popen.call_args.kwargs["env"])
+            with mock.patch.object(sys, "frozen", True, create=True),                     mock.patch.object(sys, "argv", ["app.exe", "--lang", "de", "--config", "c.json"]):
+                app_module.restart_app()
+            self.assertEqual(popen.call_args.args[0], [sys.executable, "--config", "c.json"])
+            self.assertEqual(popen.call_args.kwargs["env"].get("PYINSTALLER_RESET_ENVIRONMENT"), "1")
+            self.assertNotIn(i18n.LANG_ENV_VAR, popen.call_args.kwargs["env"])
+
+    def test_restart_closes_window(self):
+        from secret_sanitizer.gui import app as app_module
+        window = mock.Mock()
+        with mock.patch.object(app_module.subprocess, "Popen"):
+            app_module.restart_app(window)
+        window._on_close.assert_called_once()
 
 
 if __name__ == "__main__":

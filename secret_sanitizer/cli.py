@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .i18n import LANGUAGES, install_argparse, resolve_language, set_language, t
+from .i18n import LANGUAGES, current_language, install_argparse, resolve_language, set_language, t
 from .config import APP_NAME, APP_TITLE, APP_VERSION, MODES, load_settings, user_rules_path
 from .core.encoding import decode_bytes
 from .core.files import FileRun, RunError
@@ -297,7 +297,7 @@ def main(argv=None) -> int:
         return export_profile_cmd(args)
     if args.gui or not args.inputs:
         from .gui import launch
-        return launch()
+        return launch(current_language())
     sanitizer = make_sanitizer_from_args(args, parser)
     if args.inputs == ["-"]:
         return run_stdin(sanitizer, args.quiet, args.check)
