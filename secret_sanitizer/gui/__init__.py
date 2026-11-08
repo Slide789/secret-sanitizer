@@ -8,10 +8,8 @@ def launch() -> int:
     except ImportError:
         import sys
 
-        print("Die GUI benötigt das Paket customtkinter:\n"
-              "    pip install -r requirements.txt\n"
-              "Die Kommandozeile funktioniert auch ohne: python -m secret_sanitizer --help",
-              file=sys.stderr)
+        from ..i18n import t
+        print(t("cli.gui_missing"), file=sys.stderr)
         return 2
     from .app import run
 

@@ -15,8 +15,10 @@ S = SECRETS
 
 
 class CliTests(SecretAssertions, TempDirTestCase):
-    def cli(self, *args, stdin: bytes = b""):
+    def cli(self, *args, stdin: bytes = b"", lang: str = "de"):
         env = dict(os.environ)
+        env["SECRET_SANITIZER_LANG"] = lang
+        env["NO_COLOR"] = "1"   # keine ANSI-Farben in der argparse-Hilfe (Python 3.14)
         env[config.HOME_ENV_VAR] = str(self.tmp / "home")
         # Meldungen unabhängig von der Konsolen-Kodierung (unter Windows oft cp1252) als UTF-8
         env["PYTHONIOENCODING"] = "utf-8"
@@ -122,6 +124,58 @@ class CliTests(SecretAssertions, TempDirTestCase):
     def test_list_categories(self):
         res = self.cli("--list-categories")
         self.assertIn("PASSWORD", res.stdout.decode("utf-8"))
+
+    def test_help_german(self):
+        out = self.cli("--help").stdout.decode("utf-8")
+        self.assertIn("Optionen", out)
+        self.assertIn("Aufruf:", out)
+        self.assertNotIn("options:", out)
+        self.assertNotIn("usage:", out)
+        self.assertIn("Hinweis: Ergebnisse bitte immer selbst prüfen.", out)
+
+    def test_help_english(self):
+        out = self.cli("--lang", "en", "--help").stdout.decode("utf-8")
+        self.assertIn("options:", out)
+        self.assertIn("usage:", out)
+        self.assertIn("Hint: Always check the results yourself.", out)
+        self.assertNotIn("Ausgabeordner", out)
+        self.assertNotIn("Optionen", out)
+
+    def test_lang_flag_beats_env(self):
+        out = self.cli("--lang", "en", "--help", lang="de").stdout.decode("utf-8")
+        self.assertIn("options:", out)
+        out = self.cli("--lang", "de", "--help", lang="en").stdout.decode("utf-8")
+        self.assertIn("Optionen", out)
+
+    def test_stdin_hint_english(self):
+        res = self.cli("--lang", "en", "-", stdin=b"password=Sommer2024!\n")
+        self.assertEqual(res.stdout.decode("utf-8"), "password=[PASSWORD_1]\n")
+        err = res.stderr.decode("utf-8")
+        self.assertIn("Replaced: PASSWORD=1", err)
+        self.assertIn("Hint: Always check the results yourself.", err)
+
+    def test_error_message_german(self):
+        res = self.cli("--gibtsnicht")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("Fehler:", res.stderr.decode("utf-8"))
+        res = self.cli("--gibtsnicht", lang="en")
+        self.assertIn("error:", res.stderr.decode("utf-8"))
+
+    def test_binary_stdin_english(self):
+        res = self.cli("--lang", "en", "-", stdin=b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+        self.assertEqual(res.returncode, 2)
+        err = res.stderr.decode("utf-8")
+        self.assertIn("Error: Input is not a text file", err)
+        self.assertNotIn("Binärdaten", err)
+
+    def test_list_categories_english(self):
+        out = self.cli("--lang", "en", "--list-categories").stdout.decode("utf-8")
+        self.assertIn("Passwords", out)
+        self.assertNotIn("Passwörter", out)
+
+    def test_invalid_lang_value(self):
+        res = self.cli("--lang", "fr", "-", stdin=b"x")
+        self.assertEqual(res.returncode, 2)
 
 
 class SecurityPrincipleTests(unittest.TestCase):

@@ -100,5 +100,26 @@ def resolve_language(cli: str | None, setting: str) -> str:
     return detect_system_language()
 
 
+def _argparse_text(msgid: str) -> str:
+    """Deutscher Text zur argparse-msgid (Abschnitt _argparse in de.json), sonst die msgid."""
+    if _language != "de":
+        return msgid
+    table = load_catalog("de").get("_argparse")
+    text = table.get(msgid) if isinstance(table, dict) else None
+    return text if isinstance(text, str) else msgid
+
+
+def _argparse_ngettext(singular: str, plural: str, n: int) -> str:
+    return _argparse_text(singular if n == 1 else plural)
+
+
+def install_argparse() -> None:
+    """Lässt argparse seine eigenen Texte (Hilfe-Überschriften, Fehlermeldungen) in der
+    aktiven Sprache ausgeben. Wirkt prozessweit und folgt der jeweils aktiven Sprache."""
+    import argparse
+    argparse._ = _argparse_text
+    argparse.ngettext = _argparse_ngettext
+
+
 # Beim Import einmal die Startsprache setzen (Einstellung "auto").
 set_language(resolve_language(None, "auto"))

@@ -15,6 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .i18n import LANGUAGES, install_argparse, resolve_language, set_language, t
 from .config import APP_NAME, APP_TITLE, APP_VERSION, MODES, load_settings, user_rules_path
 from .core.encoding import decode_bytes
 from .core.files import FileRun, RunError
@@ -29,78 +30,74 @@ EXIT_FILE_ERRORS = 1
 EXIT_USAGE = 2
 EXIT_FOUND = 3   # --check: mindestens ein Treffer
 
-HINWEIS = "Hinweis: Ergebnisse bitte immer selbst prüfen."
-
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog=f"python -m {APP_NAME}",
-        description=f"{APP_TITLE}: ersetzt Passwörter, Tokens, IPs usw. durch Platzhalter wie [PASSWORD_1]. "
-                    "Ohne Argumente startet die GUI.",
-        epilog=HINWEIS,
+        description=t("cli.description", app=APP_TITLE),
+        epilog=t("cli.hint"),
     )
-    p.add_argument("inputs", nargs="*", metavar="PFAD",
-                   help="Datei(en) oder Ordner. '-' liest von stdin und schreibt nach stdout.")
-    p.add_argument("-o", "--output", metavar="ORDNER",
-                   help="Ausgabeordner (Standard: <eingabeordner>_sanitized neben der Eingabe).")
-    p.add_argument("-m", "--mode", choices=MODES, help="Modus: strict (Standard), normal, loose.")
-    p.add_argument("--no-personal", action="store_true",
-                   help="Personenbezogene Daten (E-Mail, Namen) NICHT ersetzen.")
-    p.add_argument("--disable", metavar="KAT[,KAT]", default="",
-                   help="Kategorien abschalten, z. B. --disable IP,HOSTNAME.")
-    p.add_argument("--enable", metavar="KAT[,KAT]", default="",
-                   help="Kategorien einschalten (überschreibt die Config).")
-    p.add_argument("--config", metavar="DATEI", help="Andere config.json verwenden.")
-    p.add_argument("--rules", metavar="DATEI", help="Andere user_rules.json verwenden.")
-    p.add_argument("--no-user-rules", action="store_true", help="Nur mitgelieferte Regeln verwenden.")
-    p.add_argument("--profile", metavar="NAME|DATEI",
-                   help="Regeln (und ggf. Modus/Kategorien) aus einem Profil statt der eigenen Regeln verwenden: "
-                        "Name eines in der GUI gespeicherten Profils oder Pfad zu einer Profildatei.")
-    p.add_argument("--export-profile", metavar="DATEI",
-                   help="Eigene Regeln, Allowlist, Modus und Kategorien als Profil exportieren und beenden.")
-    p.add_argument("--with-wordlists", action="store_true",
-                   help="Mit --export-profile: auch die Wortlisten exportieren (enthalten Namen im Klartext!).")
-    p.add_argument("--output-encoding", metavar="KODIERUNG",
-                   help="Kodierung der Ausgabedateien (Standard utf-8, 'same' = wie Eingabe).")
-    p.add_argument("--exclude", metavar="MUSTER", action="append", default=[],
-                   help="Ordner/Dateien im Ordnerlauf überspringen, z. B. --exclude \"*.bak\" (mehrfach möglich, "
-                        "zusätzlich zu den Standardmustern wie .git, node_modules).")
-    p.add_argument("--sanitize-filenames", action="store_true",
-                   help="Auch Ordner- und Dateinamen bereinigen (z. B. backup_[HOSTNAME_1].log); der Bericht "
-                        "zeigt dann nur die bereinigten Namen.")
-    p.add_argument("--no-office", action="store_true",
-                   help="Word/Excel/PowerPoint nicht bereinigen, sondern wie Binärdateien überspringen.")
-    p.add_argument("--keep-office-media", action="store_true",
-                   help="Bilder und eingebettete Objekte in Office-Dokumenten behalten (Standard: entfernen, "
-                        "weil sie nicht geprüft werden können).")
-    p.add_argument("--no-pdf", action="store_true",
-                   help="PDFs nicht lesen (sonst: Text als bereinigte <name>.pdf.txt).")
-    p.add_argument("--no-archives", action="store_true",
-                   help="Archive (.zip, .tar, .tar.gz, .gz) nicht entpacken, sondern wie Binärdateien überspringen.")
-    p.add_argument("--workers", type=int, metavar="N",
-                   help="CPU-Kerne für Ordnerläufe (Standard: automatisch, 1 = nur ein Kern).")
-    p.add_argument("--no-exclude", action="store_true",
-                   help="Keine Ausschlussmuster verwenden (auch nicht die Standardmuster).")
-    p.add_argument("-y", "--yes", action="store_true",
-                   help="Große Dateien ohne Rückfrage verarbeiten.")
-    p.add_argument("--no-report", action="store_true", help="Keine Berichtsdatei in den Ausgabeordner schreiben.")
-    p.add_argument("--clean", action="store_true",
-                   help="Ausgabeordner vorher leeren (nur wenn er leer ist oder von einem früheren Lauf stammt).")
-    p.add_argument("--check", action="store_true",
-                   help="Nur prüfen, nichts schreiben: listet Dateien mit Treffern (ohne Werte) und endet mit "
-                        f"Exit-Code {EXIT_FOUND}, wenn etwas gefunden wurde (z. B. für Pre-commit-Hooks).")
-    p.add_argument("-q", "--quiet", action="store_true", help="Weniger Ausgaben auf stderr.")
-    p.add_argument("--list-categories", action="store_true", help="Kategorien anzeigen und beenden.")
-    p.add_argument("--gui", action="store_true", help="GUI starten.")
+    p.add_argument("inputs", nargs="*", metavar=t("cli.meta.path"), help=t("cli.help.inputs"))
+    p.add_argument("-o", "--output", metavar=t("cli.meta.folder"), help=t("cli.help.output"))
+    p.add_argument("-m", "--mode", choices=MODES, help=t("cli.help.mode"))
+    p.add_argument("--no-personal", action="store_true", help=t("cli.help.no_personal"))
+    p.add_argument("--disable", metavar=t("cli.meta.cats"), default="", help=t("cli.help.disable"))
+    p.add_argument("--enable", metavar=t("cli.meta.cats"), default="", help=t("cli.help.enable"))
+    p.add_argument("--config", metavar=t("cli.meta.file"), help=t("cli.help.config"))
+    p.add_argument("--rules", metavar=t("cli.meta.file"), help=t("cli.help.rules"))
+    p.add_argument("--no-user-rules", action="store_true", help=t("cli.help.no_user_rules"))
+    p.add_argument("--profile", metavar=t("cli.meta.profile"), help=t("cli.help.profile"))
+    p.add_argument("--export-profile", metavar=t("cli.meta.file"), help=t("cli.help.export_profile"))
+    p.add_argument("--with-wordlists", action="store_true", help=t("cli.help.with_wordlists"))
+    p.add_argument("--output-encoding", metavar=t("cli.meta.encoding"), help=t("cli.help.output_encoding"))
+    p.add_argument("--exclude", metavar=t("cli.meta.pattern"), action="append", default=[],
+                   help=t("cli.help.exclude"))
+    p.add_argument("--sanitize-filenames", action="store_true", help=t("cli.help.sanitize_filenames"))
+    p.add_argument("--no-office", action="store_true", help=t("cli.help.no_office"))
+    p.add_argument("--keep-office-media", action="store_true", help=t("cli.help.keep_office_media"))
+    p.add_argument("--no-pdf", action="store_true", help=t("cli.help.no_pdf"))
+    p.add_argument("--no-archives", action="store_true", help=t("cli.help.no_archives"))
+    p.add_argument("--workers", type=int, metavar="N", help=t("cli.help.workers"))
+    p.add_argument("--no-exclude", action="store_true", help=t("cli.help.no_exclude"))
+    p.add_argument("-y", "--yes", action="store_true", help=t("cli.help.yes"))
+    p.add_argument("--no-report", action="store_true", help=t("cli.help.no_report"))
+    p.add_argument("--clean", action="store_true", help=t("cli.help.clean"))
+    p.add_argument("--check", action="store_true", help=t("cli.help.check", code=EXIT_FOUND))
+    p.add_argument("-q", "--quiet", action="store_true", help=t("cli.help.quiet"))
+    p.add_argument("--list-categories", action="store_true", help=t("cli.help.list_categories"))
+    p.add_argument("--gui", action="store_true", help=t("cli.help.gui"))
+    p.add_argument("--lang", choices=LANGUAGES, metavar="{de,en}", help=t("cli.help.lang"))
     p.add_argument("--version", action="version", version=f"{APP_TITLE} {APP_VERSION}")
     return p
+
+
+class _PreParseError(Exception):
+    pass
+
+
+def _raise_preparse_error(message: str):
+    raise _PreParseError(message)
+
+
+def _preparse_lang(argv) -> tuple[str | None, str | None]:
+    """Liest --lang und --config vorab (ohne Fehlermeldung), damit der eigentliche Parser
+    schon in der richtigen Sprache gebaut wird."""
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    pre.add_argument("--lang")
+    pre.add_argument("--config")
+    pre.error = _raise_preparse_error   # type: ignore[method-assign]
+    try:
+        known, _rest = pre.parse_known_args(argv)
+    except _PreParseError:
+        return None, None
+    return known.lang, known.config
 
 
 def _split_categories(value: str, parser) -> list[str]:
     cats = [c.strip().upper() for c in value.split(",") if c.strip()]
     unknown = [c for c in cats if c not in CATEGORIES]
     if unknown:
-        parser.error(f"Unbekannte Kategorie(n): {', '.join(unknown)} (siehe --list-categories)")
+        parser.error(t("cli.unknown_categories", cats=", ".join(unknown)))
     return cats
 
 
@@ -140,7 +137,7 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         try:
             "".encode(args.output_encoding)
         except LookupError:
-            parser.error("Unbekannte Kodierung für --output-encoding")
+            parser.error(t("cli.unknown_encoding"))
         settings.output_encoding = args.output_encoding
     if args.sanitize_filenames:
         settings.sanitize_filenames = True
@@ -154,7 +151,7 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
         settings.office_remove_media = False
     if args.workers is not None:
         if args.workers < 1:
-            parser.error("--workers muss mindestens 1 sein.")
+            parser.error(t("cli.workers_min"))
         settings.workers = args.workers
     if args.no_exclude:
         settings.exclude_patterns = []
@@ -180,12 +177,12 @@ def make_sanitizer_from_args(args, parser) -> Sanitizer:
     else:
         ruleset = load_ruleset(default_rules_path(), user_rules_path())
     for error in ruleset.errors + slow_pattern_warnings(ruleset):
-        _err(f"Warnung: {error}")
+        _err(t("cli.warning", msg=error))
     return Sanitizer(settings, ruleset)
 
 
 def _format_counts(counts: dict) -> str:
-    return ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "keine Treffer"
+    return ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or t("cli.no_hits")
 
 
 def run_stdin(sanitizer: Sanitizer, quiet: bool, check: bool = False) -> int:
@@ -193,7 +190,7 @@ def run_stdin(sanitizer: Sanitizer, quiet: bool, check: bool = False) -> int:
     try:
         text, _ = decode_bytes(data)
     except ValueError:
-        _err("Fehler: Eingabe ist keine Textdatei (Binärdaten).")
+        _err(t("cli.error", msg=t("cli.binary_stdin")))
         return EXIT_USAGE
     result = sanitizer.sanitize(text)
     if check:
@@ -204,8 +201,8 @@ def run_stdin(sanitizer: Sanitizer, quiet: bool, check: bool = False) -> int:
     sys.stdout.buffer.write(result.text.encode("utf-8"))
     sys.stdout.buffer.flush()
     if not quiet:
-        _err(f"Ersetzt: {_format_counts(result.counts_by_category())}")
-        _err(HINWEIS)
+        _err(t("cli.replaced", counts=_format_counts(result.counts_by_category())))
+        _err(t("cli.hint"))
     return EXIT_OK
 
 
@@ -214,9 +211,9 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
         if args.yes:
             return True
         if not sys.stdin.isatty():
-            _err(f"Übersprungen (zu groß, {size_mb:.0f} MB): {rel}  -> mit --yes trotzdem verarbeiten")
+            _err(t("cli.skipped_large", size=f"{size_mb:.0f}", rel=rel))
             return False
-        answer = input(f"{rel} ist {size_mb:.0f} MB groß. Trotzdem verarbeiten? [j/N] ")
+        answer = input(t("cli.confirm_large", rel=rel, size=f"{size_mb:.0f}"))
         return answer.strip().lower() in ("j", "ja", "y", "yes")
 
     def progress(done: int, total: int, rel: str) -> None:
@@ -228,7 +225,7 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
     inputs = [Path(p) for p in args.inputs]
     for path in inputs:
         if not path.exists():
-            _err(f"Fehler: Eingabe nicht gefunden: {path.name}")
+            _err(t("cli.error", msg=t("cli.input_not_found", name=path.name)))
             exit_code = EXIT_USAGE
             continue
         output = args.output
@@ -239,7 +236,7 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
                 path, output_dir=output, write_report=not args.no_report, clean_output=args.clean,
                 dry_run=args.check)
         except RunError as exc:
-            _err(f"Fehler: {exc}")
+            _err(t("cli.error", msg=exc))
             exit_code = EXIT_USAGE
             continue
         if args.check:
@@ -251,16 +248,16 @@ def run_paths(sanitizer: Sanitizer, args) -> int:
                         name = f"{prefix}/{entry.rel_path}" if prefix else path.as_posix()
                         print(f"{name}: {_format_counts(entry.counts)}")
                 elif entry.status == "failed" and not args.quiet:
-                    _err(f"Fehler: {entry.rel_path}: {entry.reason}")
+                    _err(t("cli.error", msg=f"{entry.rel_path}: {entry.reason}"))
         elif not args.quiet:
             _err("")
             _err(report.to_text().rstrip())
-            _err(f"Ausgabe: {out_root}")
+            _err(t("cli.output_line", path=out_root))
         if report.by_status("failed") and exit_code == EXIT_OK:
             exit_code = EXIT_FILE_ERRORS
     if args.check:
         if not args.quiet:
-            _err(f"{found} Datei(en) mit Treffern." if found else "Keine Treffer.")
+            _err(t("cli.found_files", n=found) if found else t("cli.none_found"))
         if found and exit_code == EXIT_OK:
             exit_code = EXIT_FOUND
     return exit_code
@@ -270,20 +267,27 @@ def export_profile_cmd(args) -> int:
     user_rules = load_user_rules(Path(args.rules) if args.rules else user_rules_path())
     if user_rules.errors:
         for error in user_rules.errors:
-            _err(f"Warnung: {error}")
+            _err(t("cli.warning", msg=error))
     settings = load_settings(Path(args.config) if args.config else None)
     path = Path(args.export_profile)
     try:
         profiles.export_profile(path, user_rules, path.stem, settings, include_wordlists=args.with_wordlists)
     except OSError as exc:
-        _err(f"Fehler: Profil konnte nicht geschrieben werden ({type(exc).__name__}).")
+        _err(t("cli.error", msg=t("cli.profile_write_failed", name=type(exc).__name__)))
         return EXIT_USAGE
     if not args.quiet:
-        _err(f"Profil exportiert: {path} ({'mit' if args.with_wordlists else 'ohne'} Wortlisten)")
+        _err(t("cli.profile_exported", path=path,
+               wordlists=t("cli.with_wordlists" if args.with_wordlists else "cli.without_wordlists")))
     return EXIT_OK
 
 
 def main(argv=None) -> int:
+    # Sprache zuerst festlegen (--lang > Umgebungsvariable > config.json > System), dann erst
+    # den Parser bauen. Die Wahl bleibt aktiv, wenn danach die GUI startet.
+    cli_lang, cli_config = _preparse_lang(argv)
+    settings = load_settings(Path(cli_config) if cli_config else None)
+    set_language(resolve_language(cli_lang, settings.language))
+    install_argparse()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.list_categories:
@@ -298,5 +302,5 @@ def main(argv=None) -> int:
     if args.inputs == ["-"]:
         return run_stdin(sanitizer, args.quiet, args.check)
     if "-" in args.inputs:
-        parser.error("'-' (stdin) kann nicht mit Dateien kombiniert werden.")
+        parser.error(t("cli.stdin_combo"))
     return run_paths(sanitizer, args)
