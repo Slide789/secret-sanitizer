@@ -15,6 +15,7 @@ from ..core import profiles
 from ..core.models import CATEGORIES
 from ..core.rules import AllowEntry, RuleError, UserRules, Wordlist, redos_risk, rule_from_dict
 from ..detectors.wordlist_detector import compile_wordlist
+from . import style
 from ..i18n import t
 from . import dialogs
 from .widgets import HighlightTextbox, style_treeview
@@ -49,7 +50,7 @@ class RuleEditor(ctk.CTkFrame):
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ctk.CTkButton(bottom, text=t("gui.rules.save_all"), command=self.save, width=220, height=36,
-                      font=ctk.CTkFont(size=14, weight="bold")).pack(side="right")
+                      font=ctk.CTkFont(size=14, weight="bold"), **style.PRIMARY).pack(side="right")
         self._build_profile_bar(bottom)
         self.status = ctk.CTkLabel(bottom, text="", anchor="w")
         self.status.pack(side="left", fill="x", expand=True)
@@ -77,7 +78,7 @@ class RuleEditor(ctk.CTkFrame):
         btns = ctk.CTkFrame(frame, fg_color="transparent")
         btns.grid(row=1, column=2, sticky="n", padx=8)
         ctk.CTkButton(btns, text=t("gui.rules.new"), width=110, command=self._new_rule).pack(pady=2)
-        ctk.CTkButton(btns, text=t("gui.rules.delete"), width=110, fg_color="#a93226", hover_color="#922b21",
+        ctk.CTkButton(btns, text=t("gui.rules.delete"), width=110, **style.DANGER,
                       command=self._delete_rule).pack(pady=2)
 
         form = ctk.CTkFrame(frame, fg_color="transparent")
@@ -100,7 +101,7 @@ class RuleEditor(ctk.CTkFrame):
                                                         placeholder_text=t("gui.rules.description_placeholder")))
         pattern_entry = ctk.CTkEntry(form, textvariable=self.var_pattern, font=ctk.CTkFont(family="Consolas", size=13))
         row(2, t("gui.rules.pattern"), pattern_entry)
-        ctk.CTkLabel(form, text=t("gui.rules.tip"), text_color="gray", anchor="w").grid(row=3, column=1, sticky="w")
+        ctk.CTkLabel(form, text=t("gui.rules.tip"), text_color=style.MUTED, anchor="w").grid(row=3, column=1, sticky="w")
         row(4, t("gui.rules.col_category"), ctk.CTkOptionMenu(form, variable=self.var_category, values=CATEGORY_IDS))
         conf_frame = ctk.CTkFrame(form, fg_color="transparent")
         self.conf_label = ctk.CTkLabel(conf_frame, text="0.90", width=40)
@@ -240,7 +241,7 @@ class RuleEditor(ctk.CTkFrame):
         frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(frame, text=t("gui.rules.wordlists_title"), font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
-        ctk.CTkLabel(frame, text=t("gui.rules.wordlists_hint"), text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=1, column=0, sticky="w", padx=8)
+        ctk.CTkLabel(frame, text=t("gui.rules.wordlists_hint"), text_color=style.MUTED, anchor="w", wraplength=420, justify="left").grid(row=1, column=0, sticky="w", padx=8)
         top = ctk.CTkFrame(frame, fg_color="transparent")
         top.grid(row=2, column=0, sticky="ew", padx=8, pady=4)
         self.var_wl_category = tk.StringVar(value="COMPANY")
@@ -255,7 +256,7 @@ class RuleEditor(ctk.CTkFrame):
 
         ctk.CTkLabel(frame, text=t("gui.rules.allow_title"), font=ctk.CTkFont(size=15, weight="bold")
                      ).grid(row=4, column=0, sticky="w", padx=8, pady=(12, 0))
-        ctk.CTkLabel(frame, text=t("gui.rules.allow_hint", prefix=REGEX_PREFIX), text_color="gray", anchor="w", wraplength=420, justify="left").grid(row=5, column=0, sticky="w", padx=8)
+        ctk.CTkLabel(frame, text=t("gui.rules.allow_hint", prefix=REGEX_PREFIX), text_color=style.MUTED, anchor="w", wraplength=420, justify="left").grid(row=5, column=0, sticky="w", padx=8)
         self.allow_box = ctk.CTkTextbox(frame, height=120, font=ctk.CTkFont(family="Consolas", size=12))
         self.allow_box.grid(row=6, column=0, sticky="nsew", padx=8, pady=(2, 8))
         frame.grid_rowconfigure(3, weight=1)
@@ -342,7 +343,7 @@ class RuleEditor(ctk.CTkFrame):
                                            width=170, state="readonly")
         self.profile_box.pack(side="left", padx=(0, 6))
         for text, command in buttons:
-            ctk.CTkButton(frame, text=text, width=110, fg_color="gray40", hover_color="gray30",
+            ctk.CTkButton(frame, text=text, width=110,
                           command=command).pack(side="left", padx=2)
 
     def _refresh_profiles(self, select: str = "") -> None:

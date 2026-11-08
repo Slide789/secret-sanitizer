@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover - abhängig von der Installation
 from .. import config
 from ..config import APP_TITLE, APP_VERSION, MODES, Settings, load_settings, mode_label, save_settings
 from ..core.models import PERSONAL_CATEGORIES
+from . import style
 from ..core.files import (FileRun, LoadedText, RunError, load_text_file, safe_reason, sanitize_path_part,
                           save_sanitized_text)
 from ..core.archives import archive_kind
@@ -98,7 +99,7 @@ class App(ctk.CTk, *_DND_BASES):
         Umgebungsvariable -> Einstellung -> Systemsprache."""
         super().__init__()
         ctk.set_appearance_mode("system")
-        ctk.set_default_color_theme("blue")
+        ctk.set_default_color_theme(str(style.THEME_FILE))
         self.title(f"{APP_TITLE} {APP_VERSION}")
         self.geometry("1360x900")
         self.minsize(1000, 680)
@@ -185,7 +186,7 @@ class App(ctk.CTk, *_DND_BASES):
         self.mode_var = tk.StringVar(value=mode_label(self.settings.mode))
         ctk.CTkSegmentedButton(left, values=[mode_label(m) for m in MODES], variable=self.mode_var,
                                command=self._mode_changed).pack(anchor="w", pady=4)
-        self.mode_hint = ctk.CTkLabel(left, text="", text_color="gray", wraplength=230, justify="left")
+        self.mode_hint = ctk.CTkLabel(left, text="", text_color=style.MUTED, wraplength=230, justify="left")
         self.mode_hint.pack(anchor="w")
         self._update_mode_hint()
 
@@ -193,13 +194,17 @@ class App(ctk.CTk, *_DND_BASES):
                                         fg_color="transparent")
         self.categories.pack(side="left", fill="x", expand=True, padx=4, pady=4)
         self._categories_visible = True
-        self.cat_toggle = ctk.CTkButton(top, text=t("gui.categories.hide"), width=130, fg_color="gray40", hover_color="gray30",
+        self.cat_toggle = ctk.CTkButton(top, text=t("gui.categories.hide"), width=130,
                                         command=self._toggle_categories)
         self.cat_toggle.pack(side="right", anchor="n", padx=8, pady=8)
 
-        banner = ctk.CTkLabel(self, text=t("gui.banner"), fg_color="#7e5109", text_color="#ffffff", corner_radius=6,
-                              font=ctk.CTkFont(size=13, weight="bold"), height=34, wraplength=1300)
+        # Ruhiger Hinweis: neutrale Fläche, schmaler Warn-Akzent links
+        banner = ctk.CTkFrame(self, fg_color=style.SURFACE_2, border_width=1, border_color=style.BORDER,
+                              corner_radius=10)
         banner.pack(fill="x", padx=10, pady=(0, 6))
+        ctk.CTkFrame(banner, width=4, height=18, fg_color=style.WARN, corner_radius=2).pack(side="left", padx=(12, 0))
+        ctk.CTkLabel(banner, text=t("gui.banner"), text_color=style.INK_WHITE, height=34, wraplength=1300,
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=10)
 
     def _toggle_categories(self) -> None:
         """Kategorie-Häkchen ein-/ausklappen (mehr Platz für die Vorschau)."""
@@ -262,12 +267,12 @@ class App(ctk.CTk, *_DND_BASES):
         ctk.CTkButton(bar, text=t("gui.text.open_file"), width=130, command=self.open_file).pack(side="left", padx=(0, 6))
         ctk.CTkButton(bar, text=t("gui.text.choose_folder"), width=130, command=self.choose_folder_from_text_tab).pack(side="left", padx=6)
         ctk.CTkButton(bar, text=t("gui.text.paste"), width=210, command=self.paste_clipboard).pack(side="left", padx=6)
-        ctk.CTkButton(bar, text=t("gui.text.clear"), width=90, fg_color="gray40", hover_color="gray30",
+        ctk.CTkButton(bar, text=t("gui.text.clear"), width=90,
                       command=self.clear_text).pack(side="left", padx=6)
         self.save_file_btn = ctk.CTkButton(bar, text=t("gui.text.save_file"), width=210, state="disabled",
                                            command=self.save_loaded_file)
         self.save_file_btn.pack(side="right", padx=6)
-        self.source_label = ctk.CTkLabel(bar, text=t("gui.text.source_pasted"), text_color="gray")
+        self.source_label = ctk.CTkLabel(bar, text=t("gui.text.source_pasted"), text_color=style.MUTED)
         self.source_label.pack(side="right", padx=10)
 
         left = ctk.CTkFrame(tab)
@@ -289,15 +294,15 @@ class App(ctk.CTk, *_DND_BASES):
         info = ctk.CTkFrame(tab, fg_color="transparent")
         info.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 2))
         ctk.CTkLabel(info, text=t("gui.text.findings"), font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        self.summary_label = ctk.CTkLabel(info, text="", text_color="gray")
+        self.summary_label = ctk.CTkLabel(info, text="", text_color=style.MUTED)
         self.summary_label.pack(side="left", padx=10)
         self.toggle_btn = ctk.CTkButton(info, text=t("gui.text.exclude"), width=170, command=self.toggle_selected,
                                         state="disabled")
         self.toggle_btn.pack(side="right")
-        self.allow_btn = ctk.CTkButton(info, text=t("gui.text.always_ignore"), width=150, fg_color="gray40",
-                                       hover_color="gray30", command=self.always_ignore_selected, state="disabled")
+        self.allow_btn = ctk.CTkButton(info, text=t("gui.text.always_ignore"), width=150,
+                                       command=self.always_ignore_selected, state="disabled")
         self.allow_btn.pack(side="right", padx=(0, 8))
-        ctk.CTkLabel(info, text=t("gui.text.dblclick_hint"), text_color="gray").pack(side="right", padx=10)
+        ctk.CTkLabel(info, text=t("gui.text.dblclick_hint"), text_color=style.MUTED).pack(side="right", padx=10)
 
         self.table = FindingTable(tab, on_select=self._row_selected, on_toggle=self.toggle_exclude)
         self.table.grid(row=3, column=0, columnspan=2, sticky="nsew")
@@ -305,7 +310,8 @@ class App(ctk.CTk, *_DND_BASES):
         bottom = ctk.CTkFrame(tab, fg_color="transparent")
         bottom.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         self.copy_btn = ctk.CTkButton(bottom, text=t("gui.text.copy"), height=48,
-                                      font=ctk.CTkFont(size=17, weight="bold"), command=self.copy_result)
+                                      font=ctk.CTkFont(size=17, weight="bold"), command=self.copy_result,
+                                      **style.PRIMARY)
         self.copy_btn.pack(fill="x")
         self.toast_label = ctk.CTkLabel(bottom, text="", text_color="#27ae60")
         self.toast_label.pack(anchor="w")
@@ -642,10 +648,11 @@ class App(ctk.CTk, *_DND_BASES):
         run_bar = ctk.CTkFrame(tab, fg_color="transparent")
         run_bar.grid(row=3, column=0, columnspan=4, sticky="ew", pady=8)
         self.start_btn = ctk.CTkButton(run_bar, text=t("gui.files.start"), height=40, width=220,
-                                       font=ctk.CTkFont(size=15, weight="bold"), command=self.start_run)
+                                       font=ctk.CTkFont(size=15, weight="bold"), command=self.start_run,
+                                       **style.PRIMARY)
         self.start_btn.pack(side="left")
         self.cancel_btn = ctk.CTkButton(run_bar, text=t("gui.files.cancel"), width=120, state="disabled",
-                                        fg_color="#a93226", hover_color="#922b21", command=self._cancel.set)
+                                        command=self._cancel.set, **style.DANGER)
         self.cancel_btn.pack(side="left", padx=8)
         self.open_out_btn = ctk.CTkButton(run_bar, text=t("gui.files.open_output"), width=190, state="disabled",
                                           command=self.open_output_folder)
@@ -659,7 +666,7 @@ class App(ctk.CTk, *_DND_BASES):
         self.progress = ctk.CTkProgressBar(tab)
         self.progress.set(0)
         self.progress.grid(row=4, column=0, columnspan=4, sticky="ew")
-        self.progress_label = ctk.CTkLabel(tab, text="", anchor="w", text_color="gray")
+        self.progress_label = ctk.CTkLabel(tab, text="", anchor="w", text_color=style.MUTED)
         self.progress_label.grid(row=5, column=0, columnspan=4, sticky="w")
 
         panes = ctk.CTkFrame(tab, fg_color="transparent")
@@ -825,7 +832,7 @@ class App(ctk.CTk, *_DND_BASES):
                                command=lambda _v: self.run_restore()).pack(side="left", padx=8)
         ctk.CTkButton(bar, text=t("gui.text.paste"), width=210,
                       command=self.paste_restore_clipboard).pack(side="left", padx=6)
-        self.restore_info = ctk.CTkLabel(bar, text="", text_color="gray")
+        self.restore_info = ctk.CTkLabel(bar, text="", text_color=style.MUTED)
         self.restore_info.pack(side="left", padx=10)
         self.restore_in = HighlightTextbox(tab, wrap="word")
         self.restore_in.grid(row=2, column=0, sticky="nsew", padx=(0, 4))
@@ -917,11 +924,11 @@ class App(ctk.CTk, *_DND_BASES):
         lang_frame.grid(row=row, column=1, sticky="w", pady=3)
         ctk.CTkOptionMenu(lang_frame, variable=self.language_var, values=list(self._language_labels.values()),
                           width=160).pack(side="left")
-        ctk.CTkLabel(lang_frame, text=t("gui.settings.language_hint"), text_color="gray").pack(side="left", padx=10)
+        ctk.CTkLabel(lang_frame, text=t("gui.settings.language_hint"), text_color=style.MUTED).pack(side="left", padx=10)
         # Gilt eine andere Sprache als die aus den Einstellungen (--lang / Umgebungsvariable), kurz darauf hinweisen
         configured = self.settings.language if self.settings.language in ("de", "en") else detect_system_language()
         if current_language() != configured:
-            ctk.CTkLabel(lang_frame, text=t("gui.settings.language_override"), text_color="gray").pack(side="left")
+            ctk.CTkLabel(lang_frame, text=t("gui.settings.language_override"), text_color=style.MUTED).pack(side="left")
         row += 1
         for key, label in fields:
             var = tk.StringVar(value=_form_value(getattr(self.settings, key)))
@@ -973,12 +980,13 @@ class App(ctk.CTk, *_DND_BASES):
 
         btns = ctk.CTkFrame(scroll, fg_color="transparent")
         btns.grid(row=row, column=0, columnspan=2, sticky="w", pady=16)
-        ctk.CTkButton(btns, text=t("gui.settings.save"), command=self.save_settings_form).pack(side="left")
-        ctk.CTkButton(btns, text=t("gui.settings.defaults"), fg_color="gray40", hover_color="gray30",
+        ctk.CTkButton(btns, text=t("gui.settings.save"), command=self.save_settings_form,
+                      **style.PRIMARY).pack(side="left")
+        ctk.CTkButton(btns, text=t("gui.settings.defaults"),
                       command=self.reset_settings_form).pack(side="left", padx=8)
         row += 1
         ctk.CTkLabel(scroll, text=t("gui.settings.config_info", path=config.config_dir()),
-                     anchor="w", justify="left", text_color="gray").grid(row=row, column=0, columnspan=2, sticky="w")
+                     anchor="w", justify="left", text_color=style.MUTED).grid(row=row, column=0, columnspan=2, sticky="w")
 
     def _form_to_dict(self) -> dict:
         data = self.settings.to_dict()

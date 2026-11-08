@@ -14,7 +14,7 @@ import customtkinter as ctk
 from ..i18n import t
 
 _ICONS = {"info": "ℹ", "warning": "⚠", "error": "✖", "question": "?"}
-_ICON_COLORS = {"info": "#2980b9", "warning": "#e67e22", "error": "#c0392b", "question": "#2980b9"}
+_ICON_COLORS = {"info": "#3B5BFF", "warning": "#E6A23C", "error": "#C0392B", "question": "#3B5BFF"}
 _WRAP = 420
 
 

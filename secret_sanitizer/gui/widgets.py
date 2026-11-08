@@ -125,14 +125,17 @@ class CategoryPanel(ctk.CTkFrame):
 def style_treeview(widget: tk.Misc) -> None:
     """ttk.Treeview an helles/dunkles customtkinter-Design anpassen."""
     dark = ctk.get_appearance_mode() == "Dark"
-    bg, fg, sel = ("#2b2b2b", "#dce4ee", "#1f538d") if dark else ("#ffffff", "#1a1a1a", "#3a7ebf")
-    head_bg = "#3a3a3a" if dark else "#e5e5e5"
+    # Auswahl in Kobalt, sonst die neutralen Töne aus theme.json
+    bg, fg, sel = ("#15151B", "#FFFFFF", "#3B5BFF") if dark else ("#FFFFFF", "#15151B", "#3B5BFF")
+    head_bg = "#28282D" if dark else "#EFEFF0"
     style = ttk.Style(widget)
     try:
         style.theme_use("clam")
     except tk.TclError:
         pass
-    style.configure("Treeview", background=bg, foreground=fg, fieldbackground=bg, rowheight=24, borderwidth=0)
+    border = "#313136" if dark else "#E3E3E4"
+    style.configure("Treeview", background=bg, foreground=fg, fieldbackground=bg, rowheight=24, borderwidth=1,
+                    bordercolor=border, lightcolor=bg, darkcolor=bg)
     style.map("Treeview", background=[("selected", sel)], foreground=[("selected", "#ffffff")])
     style.configure("Treeview.Heading", background=head_bg, foreground=fg, relief="flat")
 

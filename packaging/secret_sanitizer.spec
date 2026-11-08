@@ -58,13 +58,14 @@ RULES = [(os.path.join(PKG, "rules", name), os.path.join(APP_NAME, "rules"))
          for name in ("default_rules.json", "user_rules.json")]
 LOCALES = [(os.path.join(PKG, "locales", name), os.path.join(APP_NAME, "locales"))
            for name in ("de.json", "en.json")]
+THEME = [(os.path.join(PKG, "gui", "theme.json"), os.path.join(APP_NAME, "gui"))]
 # Nichts aus dem Netz, keine unnötigen Module
 EXCLUDES = ["unittest", "pydoc", "xmlrpc", "ftplib", "smtplib", "http.server", "tests"]
 
 gui = Analysis(
     [os.path.join(SPECPATH, "launcher_gui.py")],
     pathex=[ROOT],
-    datas=RULES + LOCALES + collect_data_files("customtkinter"),
+    datas=RULES + LOCALES + THEME + collect_data_files("customtkinter"),
     hiddenimports=["secret_sanitizer.gui.app"],
     excludes=EXCLUDES,
     noarchive=False,
