@@ -49,22 +49,18 @@ Uninstall: delete the .exe files. To remove the settings as well, also delete th
 
 Requirement: Python 3.10 or newer.
 
-1. Install Python from <https://www.python.org/downloads/windows/>. In the installer, tick
-   "Add python.exe to PATH" and "tcl/tk and IDLE" (the latter is the default and is needed for the GUI).
-2. Open a command prompt (`cmd`) or PowerShell in the project folder, i.e. the folder that contains this
-   README.
-3. Create and activate a virtual environment:
+1.. Create and activate a virtual environment:
    ```bat
    python -m venv .venv
    .venv\Scripts\activate
    ```
    (Linux/macOS: `python3 -m venv .venv` and `source .venv/bin/activate`)
-4. Install the dependencies: `customtkinter` for the GUI, `tkinterdnd2` for drag & drop and `pypdf` for PDFs.
+2.. Install the dependencies: `customtkinter` for the GUI, `tkinterdnd2` for drag & drop and `pypdf` for PDFs.
    All of them are pinned, and `pip` checks every package against the SHA-256 checksum in the file:
    ```bat
    pip install --require-hashes -r requirements.txt
    ```
-5. Start:
+3.. Start:
    ```bat
    python -m secret_sanitizer
    ```
